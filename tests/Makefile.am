@@ -1,8 +1,6 @@
-check_PROGRAMS = test_tls
-test_tls_SOURCES = $(srcdir)/tests/test_tls.cc
+check_LTLIBRARIES = libtest_tls.la
 
-TESTS = $(check_PROGRAMS)
+libtest_tls_la_SOURCES = $(srcdir)/tests/test_tls.cc
 
-test_tls: $(test_tls_SOURCES) hg++
-	hg++ -c $(test_tls_SOURCES)
-	hg++ test_tls.o -o test_tls.so
+libtest_tls.la: $(srcdir)/tests/test_tls.cc
+	hg++ -o $@ $^

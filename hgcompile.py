@@ -646,10 +646,20 @@ def _extra_system_includes_for_clang_dir(clang_dir):
   return [p for p in candidates if os.path.isdir(p)]
 
 
+def _resolve_ssthg_clang(prefix):
+  override = os.environ.get("SSTHG_CLANG")
+  if override and os.path.isfile(override):
+    return override
+  here = os.path.dirname(os.path.abspath(sys.argv[0]))
+  cand = os.path.join(here, "ssthg_clang")
+  if os.path.isfile(cand):
+    return cand
+  return os.path.join(prefix, "bin", "ssthg_clang")
+
 def _build_ssthg_clang_cmd(ctx, plan, prefix, ppTmpFile, haveFloat128,
                            clangMajorVersion=0):
   """Return argv for the ssthg_clang invocation that emits sst.pp.* / sstGlobals.*."""
-  clangDeglobal = os.path.join(prefix, "bin", "ssthg_clang")
+  clangDeglobal = _resolve_ssthg_clang(prefix)
   cmd = [clangDeglobal, ppTmpFile]
   cmd.extend(ctx.clangArgs)
   cmd.append("--")

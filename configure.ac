@@ -46,6 +46,22 @@ if test "$SST_CONFIG" = "no"; then
     AC_MSG_ERROR([sst-config not found. Please install it or ensure it is in your PATH.])
 fi
 
+AC_PATH_PROG([LIT], [lit])
+AC_PATH_PROG([FILECHECK], [FileCheck])
+AC_PATH_PROG([SST_PROG], [sst])
+
+AC_ARG_ENABLE([strict-tests],
+  [AS_HELP_STRING([--enable-strict-tests],
+    [Fail at configure time if test tools (lit, FileCheck, sst) are missing])],
+  [enable_strict_tests=$enableval],
+  [enable_strict_tests=no])
+
+if test "x$enable_strict_tests" = "xyes"; then
+  test -z "$LIT"       && AC_MSG_ERROR([--enable-strict-tests: lit not found in PATH (pip install lit)])
+  test -z "$FILECHECK" && AC_MSG_ERROR([--enable-strict-tests: FileCheck not found in PATH])
+  test -z "$SST_PROG"  && AC_MSG_ERROR([--enable-strict-tests: sst not found in PATH])
+fi
+
 AC_MSG_CHECKING([for SST_ELEMENT_LIBRARY_EXT_LIBDIR])
 SST_ELEMENT_LIBRARY_EXT_LIBDIR=`sst-config SST_ELEMENT_LIBRARY SST_ELEMENT_LIBRARY_EXT_LIBDIR`
 AC_MSG_RESULT([$SST_ELEMENT_LIBRARY_EXT_LIBDIR])

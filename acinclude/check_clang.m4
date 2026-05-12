@@ -96,14 +96,26 @@ AC_DEFUN([CHECK_CLANG_LLVM], [
     
     CLANG_LIBTOOLING_SYSTEM_LIBS=`$clang/bin/llvm-config --system-libs`
     CLANG_LIBTOOLING_LIBS=`$clang/bin/llvm-config --libs`
+
+    dnl LLVM's CMake sometimes bakes absolute paths to static archives
+    dnl (e.g. /usr/lib/x86_64-linux-gnu/libzstd.a) into --system-libs.
+    dnl Rewrite any /abs/path/libFOO.a -> -lFOO so the linker uses whatever
+    dnl libFOO is reachable via LIBRARY_PATH / LD_LIBRARY_PATH / -L flags.
+    CLANG_LIBTOOLING_SYSTEM_LIBS=`echo "$CLANG_LIBTOOLING_SYSTEM_LIBS" \
+      | sed -E 's|/[^[:space:]]*/lib([A-Za-z0-9_+.-]+)\.a|-l\1|g'`
+
     LLVM_LIBS="$CLANG_LIBTOOLING_LIBS"
     LLVM_SYSTEM_LIBS="$CLANG_LIBTOOLING_SYSTEM_LIBS"
     LLVM_CPPFLAGS="$CLANG_CPPFLAGS"
     LLVM_LDFLAGS="$CLANG_LDFLAGS"
 
-    clang_version=`$clang/bin/clang --version | head -n 1 | cut -d ' ' -f 3`
-    clang_major_version=`echo $clang_version | cut -d '.' -f 1`
-    AC_SUBST([CLANG_MAJOR_VERSION], [${clang_major_version:-0}])
+    dnl Use llvm-config rather than parsing 'clang --version', whose first line
+    dnl varies by vendor (e.g. Homebrew prefixes 'Homebrew clang version ...').
+    clang_major_version=`$clang/bin/llvm-config --version 2>/dev/null | cut -d '.' -f 1`
+    case "$clang_major_version" in
+      ''|*[[!0-9]]*) clang_major_version=0 ;;
+    esac
+    AC_SUBST([CLANG_MAJOR_VERSION], [$clang_major_version])
     if test "$clang_major_version" = "9"; then
       AM_CONDITIONAL(CLANG_NEED_LIBCPP,true)
     else

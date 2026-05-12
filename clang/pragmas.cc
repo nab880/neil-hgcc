@@ -903,11 +903,12 @@ static void doActivateFieldsPragma(Decl* d, bool defaultNull,
   }
   case Decl::Typedef: {
     TypedefDecl* td = cast<TypedefDecl>(d);
-    if (td->getTypeForDecl() == nullptr){
+    QualType underlying = td->getUnderlyingType();
+    if (underlying.isNull()){
       internalError(d, "typedef declaration has no underlying type");
       break;
-    } else if (td->getTypeForDecl()->isStructureType()){
-      RecordDecl* rd = td->getTypeForDecl()->getAsStructureType()->getDecl();
+    } else if (underlying->isStructureType()){
+      RecordDecl* rd = underlying->getAsRecordDecl();
       addFields(rd, defaultNull, fields, prg);
       break;
     }

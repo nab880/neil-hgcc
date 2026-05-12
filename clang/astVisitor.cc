@@ -133,6 +133,26 @@ static std::string appendText(clang::Expr* expr, const std::string& toAppend)
   return pp.str();
 }
 
+// One-shot stderr warning: lambda capture init resolves to a class peelExpr
+// does not recognize. An unknown wrapper around a global DeclRef would
+// silently fail to erase from globalsTouched_; surface it so peelExpr can be
+// extended.
+static bool _lambdaPeelUnknownLeafWarned = false;
+
+static void warnLambdaPeelUnknownLeaf(const std::string& varName,
+                                      const char* leafClassName)
+{
+  if (_lambdaPeelUnknownLeafWarned) return;
+  _lambdaPeelUnknownLeafWarned = true;
+  std::cerr << "ssthg_clang: warning: lambda capture initializer for '"
+            << varName << "' resolves to unrecognized expression class '"
+            << (leafClassName ? leafClassName : "(null)")
+            << "'; treating as non-global. If this is wrapping a global "
+               "DeclRefExpr, add the class to "
+               "SkeletonASTVisitor::peelExpr (LambdaCaptureInit mode)."
+            << std::endl;
+}
+
 static void applySystemIncludePathList(const std::string& raw)
 {
   char fullpathBuffer[1024];
@@ -482,7 +502,7 @@ SkeletonASTVisitor::VisitCXXNewExpr(CXXNewExpr * /*expr*/)
 }
 
 bool
-SkeletonASTVisitor::TraverseDecltypeTypeLoc(clang::DecltypeTypeLoc  /*loc*/)
+SkeletonASTVisitor::TraverseDecltypeTypeLoc(clang::DecltypeTypeLoc  /*loc*/, bool  /*TraverseQualifier*/)
 {
   return true;
 }
@@ -1294,20 +1314,8 @@ SkeletonASTVisitor::checkAnonStruct(VarDecl* D)
 CXXConstructExpr*
 SkeletonASTVisitor::getCtor(VarDecl *vd)
 {
-  clang::Expr* expr = vd->getInit();
-  while (1 && expr) {
-    switch(expr->getStmtClass()){
-    case Stmt::CXXConstructExprClass:
-      return cast<CXXConstructExpr>(expr);
-    case Stmt::ExprWithCleanupsClass: {
-      expr = cast<ExprWithCleanups>(expr)->getSubExpr();
-      break;
-    }
-    default:
-      return nullptr;
-    }
-  }
-  return nullptr;
+  return dyn_cast_or_null<CXXConstructExpr>(
+      peelExpr(vd->getInit(), ExprPeelMode::ExprCleanupsOnly).leaf);
 }
 
 bool
@@ -1327,7 +1335,8 @@ SkeletonASTVisitor::TraverseLambdaExpr(LambdaExpr* expr)
 bool
 SkeletonASTVisitor::doTraverseLambda(LambdaExpr* expr)
 {
-  if (isInSystemHeader(expr->getBeginLoc())){
+  // Do not skeletonize captures from libc++/Clang system-header lambdas.
+  if (isInSystemHeader(getStart(expr))){
     return RecursiveASTVisitor<SkeletonASTVisitor>::TraverseLambdaExpr(expr);
   }
   switch (expr->getCaptureDefault()){
@@ -1357,63 +1366,15 @@ SkeletonASTVisitor::doTraverseLambda(LambdaExpr* expr)
           continue; //there is no init to worry about, I guess
         }
 
-        bool cont = true;
-        while (cont && needed->getStmtClass() != Stmt::DeclRefExprClass){
-          switch (needed->getStmtClass()){
-            case Stmt::CXXConstructExprClass: {
-              CXXConstructExpr* next = cast<CXXConstructExpr>(needed);
-              if (next->getNumArgs() > 0){
-                needed = next->getArg(0);
-              } else {
-                cont = false;
-              }
-              break;
-            }
-            case Stmt::ImplicitCastExprClass: {
-              ImplicitCastExpr* next = cast<ImplicitCastExpr>(needed);
-              needed = next->getSubExpr();
-              break;
-            }
-            case Stmt::CStyleCastExprClass: {
-              CStyleCastExpr* next = cast<CStyleCastExpr>(needed);
-              needed = next->getSubExpr();
-              break;
-            }
-           case Stmt::UnaryOperatorClass: {
-             UnaryOperator* next = cast<UnaryOperator>(needed);
-             needed = next->getSubExpr();
-             break;
-           }
-           case Stmt::CXXDependentScopeMemberExprClass: {
-              CXXDependentScopeMemberExpr* next = cast<CXXDependentScopeMemberExpr>(needed);
-              needed = next->getBase();
-              break;
-            }
-            case Stmt::CXXNewExprClass: {
-              //not a global variable - this got operator newed
-              cont = false;
-              break;
-            }
-            case Stmt::CallExprClass:
-            case Stmt::MemberExprClass:
-            case Stmt::CXXBoolLiteralExprClass:
-            case Stmt::ExprWithCleanupsClass:
-            case Stmt::CXXMemberCallExprClass:
-              cont = false;
-              break; //do nothing
-            default: {
-              vd->dump();
-              needed->dump();
-              std::string error = "finding capture target of "
-                  + vd->getNameAsString() + " lead to bad expression type "
-                  + needed->getStmtClassName();
-              errorAbort(vd, error);
-            }
+        // DeclRef under the init -> erase from globalsTouched_; unknown leaf -> warn once, skip.
+        ExprPeelResult pr = peelExpr(needed, ExprPeelMode::LambdaCaptureInit);
+        if (!pr.nonRefLeaf){
+          if (DeclRefExpr* dref = dyn_cast<DeclRefExpr>(pr.leaf)){
+            globalsTouched_.back().erase(dref->getDecl()->getCanonicalDecl());
+          } else if (pr.leaf){
+            warnLambdaPeelUnknownLeaf(vd->getNameAsString(),
+                                      pr.leaf->getStmtClassName());
           }
-        }
-        if (cont){
-          DeclRefExpr* dref = cast<DeclRefExpr>(needed);
-          globalsTouched_.back().erase(dref->getDecl()->getCanonicalDecl());
         }
       }
       addInContextGlobalDeclarations(expr->getBody());
@@ -2557,51 +2518,103 @@ SkeletonASTVisitor::deleteNullVariableStmt(Stmt* s)
 
 
 
+SkeletonASTVisitor::ExprPeelResult
+SkeletonASTVisitor::peelExpr(Expr* e, ExprPeelMode mode)
+{
+  ExprPeelResult res{e, false};
+  if (!e) return res;
+
+  const bool peelCasts = mode == ExprPeelMode::CastsAndUnary
+                      || mode == ExprPeelMode::CastsAndTemporaries
+                      || mode == ExprPeelMode::LambdaCaptureInit;
+  const bool peelUnary = mode == ExprPeelMode::CastsAndUnary
+                      || mode == ExprPeelMode::LambdaCaptureInit;
+  const bool peelExprCleanups = mode == ExprPeelMode::CastsAndTemporaries
+                             || mode == ExprPeelMode::ExprCleanupsOnly;
+  const bool peelTemporaries = mode == ExprPeelMode::CastsAndTemporaries;
+  const bool isLambda = mode == ExprPeelMode::LambdaCaptureInit;
+
+  while (true){
+    Expr* sub = nullptr;
+    bool nonRef = false;
+    switch (e->getStmtClass()){
+      case Stmt::ParenExprClass:
+        if (peelCasts) sub = cast<ParenExpr>(e)->getSubExpr();
+        break;
+      case Stmt::ImplicitCastExprClass:
+        if (peelCasts) sub = cast<ImplicitCastExpr>(e)->getSubExpr();
+        break;
+      case Stmt::CStyleCastExprClass:
+        if (peelCasts) sub = cast<CStyleCastExpr>(e)->getSubExpr();
+        break;
+      case Stmt::UnaryOperatorClass:
+        if (peelUnary) sub = cast<UnaryOperator>(e)->getSubExpr();
+        break;
+      case Stmt::ExprWithCleanupsClass:
+        if (peelExprCleanups) sub = cast<ExprWithCleanups>(e)->getSubExpr();
+        else if (isLambda) nonRef = true;
+        break;
+      case Stmt::CXXBindTemporaryExprClass:
+        if (peelTemporaries) sub = cast<CXXBindTemporaryExpr>(e)->getSubExpr();
+        break;
+      case Stmt::MaterializeTemporaryExprClass:
+        if (peelTemporaries){
+          MaterializeTemporaryExpr* mte = cast<MaterializeTemporaryExpr>(e);
+#if CLANG_VERSION_MAJOR < 10
+          sub = mte->GetTemporaryExpr();
+#else
+          sub = mte->getSubExpr();
+#endif
+        }
+        break;
+      case Stmt::CXXConstructExprClass:
+        if (isLambda){
+          CXXConstructExpr* ce = cast<CXXConstructExpr>(e);
+          if (ce->getNumArgs() > 0) sub = ce->getArg(0);
+          else nonRef = true;
+        }
+        break;
+      case Stmt::CXXDependentScopeMemberExprClass:
+        if (isLambda) sub = cast<CXXDependentScopeMemberExpr>(e)->getBase();
+        break;
+      case Stmt::CallExprClass:
+      case Stmt::CXXMemberCallExprClass:
+      case Stmt::MemberExprClass:
+      case Stmt::CXXNewExprClass:
+      case Stmt::IntegerLiteralClass:
+      case Stmt::FloatingLiteralClass:
+      case Stmt::CharacterLiteralClass:
+      case Stmt::StringLiteralClass:
+      case Stmt::CXXBoolLiteralExprClass:
+      case Stmt::CXXNullPtrLiteralExprClass:
+        if (isLambda) nonRef = true;
+        break;
+      default:
+        break;
+    }
+    if (nonRef){
+      res.leaf = e;
+      res.nonRefLeaf = true;
+      return res;
+    }
+    if (!sub){
+      res.leaf = e;
+      return res;
+    }
+    e = sub;
+  }
+}
+
 Expr*
 SkeletonASTVisitor::getFinalExpr(Expr* e)
 {
-#define sub_case(e,cls) \
-  case Stmt::cls##Class: \
-    e = cast<cls>(e)->getSubExpr(); break
-  while (1){
-    switch(e->getStmtClass()){
-    sub_case(e,UnaryOperator);
-    sub_case(e,ParenExpr);
-    sub_case(e,CStyleCastExpr);
-    sub_case(e,ImplicitCastExpr);
-    default:
-      return e;
-    }
-  }
+  return peelExpr(e, ExprPeelMode::CastsAndUnary).leaf;
 }
 
 Expr*
 SkeletonASTVisitor::getUnderlyingExpr(Expr *e)
 {
-#define sub_case(e,cls) \
-  case Stmt::cls##Class: \
-    e = cast<cls>(e)->getSubExpr(); break
-  while (1){
-    switch(e->getStmtClass()){
-    sub_case(e,ParenExpr);
-    sub_case(e,CStyleCastExpr);
-    sub_case(e,ImplicitCastExpr);
-    sub_case(e,CXXBindTemporaryExpr);
-    sub_case(e,ExprWithCleanups);
-    case Stmt::MaterializeTemporaryExprClass: {
-      MaterializeTemporaryExpr* mte = cast<MaterializeTemporaryExpr>(e);
-#if CLANG_VERSION_MAJOR < 10
-      e = mte->GetTemporaryExpr();
-#else
-      e = mte->getSubExpr();
-#endif
-      break;
-    }
-    default:
-      return e;
-    }
-  }
-#undef sub_case
+  return peelExpr(e, ExprPeelMode::CastsAndTemporaries).leaf;
 }
 
 const Decl*

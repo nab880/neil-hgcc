@@ -51,13 +51,12 @@ sstLdFlags = [
 ]
 
 haveFloat128=@have_float_128@
+clangMajorVersion=@CLANG_MAJOR_VERSION@
 clangCppFlagsStr="@CLANG_CPPFLAGS@"
 clangLdFlagsStr="@CLANG_LDFLAGS@"
-#clangLibtoolingCxxFlagsStr="@CLANG_LIBTOOLING_CXX_FLAGS@ @MACSDK_CXXFLAGS@"
-clangLibtoolingCxxFlagsStr="@CLANG_LIBTOOLING_CXX_FLAGS@"
+clangLibtoolingCxxFlagsStr="@CLANG_LIBTOOLING_CXX_FLAGS@ @MACSDK_CXXFLAGS@"
 clangLibtoolingCxxResourceStr="@CLANG_LIBTOOLING_CXX_RESOURCE_FLAGS@"
-#clangLibtoolingCFlagsStr="@CLANG_LIBTOOLING_C_FLAGS@ @MACSDK_CFLAGS@"
-clangLibtoolingCFlagsStr="@CLANG_LIBTOOLING_C_FLAGS@"
+clangLibtoolingCFlagsStr="@CLANG_LIBTOOLING_C_FLAGS@ @MACSDK_CFLAGS@"
 useLibcxxForAst=@USE_LIBCXX_FOR_AST@
 astGnuxxRemap=@AST_GNUXX_REMAP@
 defaultIncludePaths="@DEFAULT_INCLUDE_PATHS@:@SST_ELEMENTS@/include"

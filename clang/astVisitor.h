@@ -364,6 +364,21 @@ class SkeletonASTVisitor : public clang::RecursiveASTVisitor<SkeletonASTVisitor>
     }
   }
 
+  // peelExpr modes; unknown StmtClass values are returned as the leaf, never abort.
+  enum class ExprPeelMode {
+    CastsAndUnary,        // getFinalExpr: parens, *Cast, UnaryOperator
+    CastsAndTemporaries,  // getUnderlyingExpr: above + ExprWithCleanups, CXXBindTemp, MaterializeTemp
+    ExprCleanupsOnly,     // getCtor: ExprWithCleanups only
+    LambdaCaptureInit,    // lambda walker: above casts/unary + CXXConstruct.arg(0) + CXXDependentScopeMember.base; halts on call/member/literal/new/cleanups
+  };
+
+  struct ExprPeelResult {
+    clang::Expr* leaf;
+    bool nonRefLeaf;      // LambdaCaptureInit only: leaf is a class known not to be a global DeclRef
+  };
+
+  static ExprPeelResult peelExpr(clang::Expr* e, ExprPeelMode mode);
+
   /**
    * @brief getUnderlyingExpr Follow through parentheses and casts
    *  to the "significant" expression underneath
@@ -530,7 +545,7 @@ class SkeletonASTVisitor : public clang::RecursiveASTVisitor<SkeletonASTVisitor>
 
   bool TraverseDoStmt(clang::DoStmt* S, DataRecursionQueue* queue = nullptr);
 
-  bool TraverseDecltypeTypeLoc(clang::DecltypeTypeLoc loc);
+  bool TraverseDecltypeTypeLoc(clang::DecltypeTypeLoc loc, bool TraverseQualifier);
 
   bool TraverseWhileStmt(clang::WhileStmt* S, DataRecursionQueue* queue = nullptr);
 

@@ -157,6 +157,8 @@ ssthg_clang_LDFLAGS = $(CLANG_LDFLAGS) \
  -lclangBasic \
  -lclangSupport \
  -lclangAPINotes \
+ -lclangOptions \
+ -lclangAnalysisLifetimeSafety \
  @CLANG_LIBTOOLING_LIBS@ \
  @CLANG_LIBTOOLING_SYSTEM_LIBS@ @LINK_GROUP_END@
 

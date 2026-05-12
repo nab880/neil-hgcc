@@ -57,6 +57,45 @@ def _hgcc_bool_attr(mod, name, default=False):
   return bool(v)
 
 
+_CLANGXX_FALLBACK_WARNED = False
+_STD_FLOOR_WARNED = False
+
+def _warn_std_floor(stdlib_name, old_std, new_std):
+  """Once-per-process stderr warning when the AST -std= floor bumps the user's
+  requested dialect because the resolved C++ standard library headers require
+  it. This is a real semantic change: the same -std= is forced on ssthg_clang
+  parse, clang++ -E, and the host -c of the rewritten output."""
+  global _STD_FLOOR_WARNED
+  if _STD_FLOOR_WARNED:
+    return
+  _STD_FLOOR_WARNED = True
+  sys.stderr.write(
+      "hgcc: warning: bumping %s to %s because %s headers require it. "
+      "The entire src2src pipeline (ssthg_clang parse, clang++ -E, host -c of "
+      "the rewritten output) will run at %s, not the originally requested "
+      "dialect. To silence, set STD_CXXFLAGS / --with-std / hg++ -std= to %s "
+      "or newer.\n"
+      % (old_std, new_std, stdlib_name, new_std, new_std))
+
+
+def _warn_clangxx_fallback(where):
+  """Once-per-process stderr warning when a C++ step falls back to ctx.compiler
+  instead of the LLVM clang++ that ssthg_clang was built against. Mismatch
+  between -E / ssthg_clang / host -c produces 'no template named __builtin_*'
+  errors that look mysterious; this points at the actual cause."""
+  global _CLANGXX_FALLBACK_WARNED
+  if _CLANGXX_FALLBACK_WARNED:
+    return
+  _CLANGXX_FALLBACK_WARNED = True
+  sys.stderr.write(
+      "hgcc: warning: %s could not resolve clang++ from hgccvars.clangDir or "
+      "compile_commands -I flags; falling back to ctx.compiler. ssthg_clang and "
+      "the host compile may now disagree on builtins (e.g. __builtin_common_type, "
+      "__is_referenceable). Re-configure sst-hgcc with "
+      "--with-clang=<llvm-install> matching the compiler you intend to use.\n"
+      % where)
+
+
 def _argv_drop_compiler_leader(argv):
   """Drop compile_commands argv[0] driver name."""
   if not argv:
@@ -154,13 +193,31 @@ def host_compile_argv_for_ast(ctx, args):
   return _filter_ast_host_flags(argv)
 
 
-def compile_commands_argv_for_source(source_path):
-  """Argv from HGCC_COMPILE_COMMANDS JSON for this TU, or None.
+def _path_match_keys(p):
+  """Return canonical-equivalent keys for a filesystem path.
 
-  TODO: os.path.abspath is used on both sides of the comparison; consider
-  switching to os.path.realpath so symlinked build trees or DB paths that
-  differ only by a symlinked directory component still match.
+  Includes both abspath and realpath so a compile_commands lookup matches
+  across symlinks (brew Cellar) and macOS APFS firmlinks (/tmp <-> /private/
+  tmp, /var <-> /private/var). Falls back to the input on resolution errors.
   """
+  if not p:
+    return frozenset()
+  keys = set()
+  try:
+    keys.add(os.path.abspath(p))
+  except (OSError, ValueError):
+    pass
+  try:
+    keys.add(os.path.realpath(p))
+  except (OSError, ValueError):
+    pass
+  if not keys:
+    keys.add(p)
+  return frozenset(keys)
+
+
+def compile_commands_argv_for_source(source_path):
+  """Argv from HGCC_COMPILE_COMMANDS JSON for this TU, or None."""
   raw = os.environ.get("HGCC_COMPILE_COMMANDS")
   if not raw:
     return None
@@ -172,15 +229,19 @@ def compile_commands_argv_for_source(source_path):
       db = json.load(fh)
   except (OSError, ValueError, json.JSONDecodeError):
     return None
-  want = os.path.abspath(source_path)
+  want = _path_match_keys(source_path)
+  if not want:
+    return None
   for ent in db:
     f = ent.get("file")
     if not f:
       continue
-    try:
-      if os.path.abspath(f) != want:
-        continue
-    except OSError:
+    if not os.path.isabs(f):
+      d = ent.get("directory")
+      if d:
+        f = os.path.join(d, f)
+    cand = _path_match_keys(f)
+    if cand.isdisjoint(want):
       continue
     args = ent.get("arguments")
     if isinstance(args, list) and args:
@@ -252,13 +313,49 @@ def apply_ast_libstdcxx_cpp14_floor(argv, enabled):
   if not enabled:
     return argv
   out = []
+  bumped = None
   for a in argv:
     if a in ("-std=c++11", "-std=c++0x"):
       out.append("-std=c++14")
+      if bumped is None:
+        bumped = (a, "-std=c++14")
     elif a in ("-std=gnu++11", "-std=gnu++0x"):
       out.append("-std=gnu++14")
+      if bumped is None:
+        bumped = (a, "-std=gnu++14")
     else:
       out.append(a)
+  if bumped:
+    _warn_std_floor("libstdc++", bumped[0], bumped[1])
+  return out
+
+
+def apply_ast_libcxx_cpp17_floor(argv, enabled):
+  """Raise dialect to C++17 for ssthg_clang parse when using libc++.
+
+  libc++ shipping with LLVM 18+ assumes C++17 in many headers (concepts,
+  __builtin_common_type, etc). A user passing -std=c++14 with libc++ would
+  otherwise produce parse errors inside libc++ itself.
+  """
+  if not enabled:
+    return argv
+  pre17_cxx = ("-std=c++11", "-std=c++0x", "-std=c++14", "-std=c++1y")
+  pre17_gnu = ("-std=gnu++11", "-std=gnu++0x", "-std=gnu++14", "-std=gnu++1y")
+  out = []
+  bumped = None
+  for a in argv:
+    if a in pre17_cxx:
+      out.append("-std=c++17")
+      if bumped is None:
+        bumped = (a, "-std=c++17")
+    elif a in pre17_gnu:
+      out.append("-std=gnu++17")
+      if bumped is None:
+        bumped = (a, "-std=gnu++17")
+    else:
+      out.append(a)
+  if bumped:
+    _warn_std_floor("libc++", bumped[0], bumped[1])
   return out
 
 
@@ -362,14 +459,8 @@ def addPreprocess(
     use_clang_cpp_for_e=False,
     clang_exe_for_preprocess=None,
     clang_cc_for_linux_preprocess=None,
+    stdlib_flag="libstdc++",
 ):
-  """use_clang_cpp_for_e: run clang++ -E so libstdc++ expands for Clang (__make_integer_seq),
-  not g++ (__integer_pack), which ssthg_clang cannot parse.
-
-  clang_cc_for_linux_preprocess: on Linux C, gcc -E expands glibc with __GNUC__ from gcc,
-  embedding __malloc__(deallocator, n) into the .ii file; ssthg_clang then cannot parse
-  that text. Use clang -fgnuc-version=10 -E so the preprocessor output matches what Clang
-  can parse (see addSrc2SrcCompile)."""
   if use_clang_cpp_for_e and ctx.typ == "c++":
     if clang_exe_for_preprocess:
       clang_pp = clang_exe_for_preprocess
@@ -382,8 +473,9 @@ def addPreprocess(
         scan.extend(shlex.split(str(cf)))
       clang_pp = _clang_cxx_resolve_for_libstdc_host(ctx, scan)
     if clang_pp:
-      ppArgs = [clang_pp, "-stdlib=libstdc++"]
+      ppArgs = [clang_pp, "-stdlib=%s" % stdlib_flag]
     else:
+      _warn_clangxx_fallback("addPreprocess (-E)")
       ppArgs = [ctx.compiler]
   elif clang_cc_for_linux_preprocess:
     ppArgs = [clang_cc_for_linux_preprocess, "-fgnuc-version=10"]
@@ -403,16 +495,16 @@ def addPreprocess(
     ppArgs.append("-O%s" % args.O)
   cmds.append([outputFile,ppArgs,[]]) #pipe file, no extra temps
 
-def addEmitLlvm(ctx, sourceFile, outputFile, args, cmds):
-  cmdArr = [
-    ctx.compiler,
-    "-emit-llvm",
-    "-S",
-    "--no-integrated-cpp",
-    sourceFile,
-    "-o",
-    outputFile
-  ]
+def addEmitLlvm(ctx, sourceFile, outputFile, args, cmds, plan=None):
+  if plan is not None and plan.use_clangxx_host:
+    cmdArr = [plan.clang_cxx_bin,
+              "-stdlib=libc++" if plan.use_libcxx else "-stdlib=libstdc++"]
+  else:
+    cmdArr = [ctx.compiler]
+  cmdArr.extend(["-emit-llvm", "-S"])
+  if plan is None or not plan.use_clangxx_host:
+    cmdArr.append("--no-integrated-cpp")
+  cmdArr.extend([sourceFile, "-o", outputFile])
   if args.O:
     cmds.append("-O%s" % args.O)
   cmds.append([None,cmdArr,[outputFile]])
@@ -434,14 +526,18 @@ def addLlvmOptPass(ctx, llFile, llvmPass, args, cmds):
   ]
   cmds.append([None,cmdArr,[]])
 
-def addLlvmCompile(ctx, llFile, objFile, args, cmds):
-  cmdArr = [
-    ctx.compiler,
+def addLlvmCompile(ctx, llFile, objFile, args, cmds, plan=None):
+  if plan is not None and plan.use_clangxx_host:
+    cmdArr = [plan.clang_cxx_bin,
+              "-stdlib=libc++" if plan.use_libcxx else "-stdlib=libstdc++"]
+  else:
+    cmdArr = [ctx.compiler]
+  cmdArr.extend([
     "-o",
     objFile,
     "-c",
     llFile,
-  ]
+  ])
   cmdArr.extend(ctx.compilerFlags)
   cmds.append([None,cmdArr,[objFile]])
 
@@ -493,6 +589,8 @@ def _build_src2src_plan(ctx, sourceFile, args, _hv,
       base_argv = [sstStdFlag] + base_argv
   base_argv = apply_ast_libstdcxx_cpp14_floor(
       base_argv, (not p.use_libcxx) and ctx.typ == "c++")
+  base_argv = apply_ast_libcxx_cpp17_floor(
+      base_argv, p.use_libcxx and ctx.typ == "c++")
   base_argv = apply_ast_gnuxx_remap(base_argv, p.ast_gnuxx_remap)
   p.base_argv = base_argv
 
@@ -519,8 +617,7 @@ def _build_src2src_plan(ctx, sourceFile, args, _hv,
   if ctx.typ != "c++" and sys.platform.startswith("linux"):
     p.clang_cc_linux = _clang_cc_resolve_for_linux_preprocess(ctx, pre_tokens)
   p.clang_cxx_bin = _clang_cxx_resolve_for_libstdc_host(ctx, pre_tokens)
-  p.use_clangxx_host = (
-      (not p.use_libcxx) and ctx.typ == "c++" and bool(p.clang_cxx_bin))
+  p.use_clangxx_host = ctx.typ == "c++" and bool(p.clang_cxx_bin)
   return p
 
 
@@ -530,7 +627,27 @@ def _normalize_default_include_paths(defaultIncludePaths):
   return ":".join(os.path.abspath(p) for p in rawPaths)
 
 
-def _build_ssthg_clang_cmd(ctx, plan, prefix, ppTmpFile, haveFloat128):
+def _extra_system_includes_for_clang_dir(clang_dir):
+  if not clang_dir:
+    return []
+  candidates = [
+      os.path.join(clang_dir, "include", "c++", "v1"),
+      os.path.join(clang_dir, "include"),
+  ]
+  lib_clang = os.path.join(clang_dir, "lib", "clang")
+  if os.path.isdir(lib_clang):
+    try:
+      for entry in sorted(os.listdir(lib_clang)):
+        cand = os.path.join(lib_clang, entry, "include")
+        if os.path.isdir(cand):
+          candidates.append(cand)
+    except OSError:
+      pass
+  return [p for p in candidates if os.path.isdir(p)]
+
+
+def _build_ssthg_clang_cmd(ctx, plan, prefix, ppTmpFile, haveFloat128,
+                           clangMajorVersion=0):
   """Return argv for the ssthg_clang invocation that emits sst.pp.* / sstGlobals.*."""
   clangDeglobal = os.path.join(prefix, "bin", "ssthg_clang")
   cmd = [clangDeglobal, ppTmpFile]
@@ -568,12 +685,12 @@ def _build_ssthg_clang_cmd(ctx, plan, prefix, ppTmpFile, haveFloat128):
       cmd.append("-D_Float32x=double")
       cmd.append("-D_Float64x=long double")
       cmd.append("-D_Float128=long double")
-  # TODO(llvm18): __builtin_clzg / __builtin_ctzg were added in LLVM 18. Once
-  # ssthg_clang is built against LLVM 18+, gate these -D stubs behind a
-  # Clang-version probe (or a configure check) so real uses of the builtins
-  # are not silently replaced with the literal 0.
-  cmd.append("-D__builtin_clzg(...)=0")
-  cmd.append("-D__builtin_ctzg(...)=0")
+  # __builtin_clzg / __builtin_ctzg were added in LLVM 18. On older Clang we
+  # stub them to literal 0 so libc++ <bit> still parses; on >= 18 we must NOT
+  # define the macro or real call sites get silently rewritten to 0.
+  if clangMajorVersion and clangMajorVersion < 18:
+    cmd.append("-D__builtin_clzg(...)=0")
+    cmd.append("-D__builtin_ctzg(...)=0")
 
   cmd.extend(plan.ast_resource_tokens)
   return cmd
@@ -582,8 +699,11 @@ def _build_ssthg_clang_cmd(ctx, plan, prefix, ppTmpFile, haveFloat128):
 def _build_host_obj_cmd(ctx, args, plan, srcRepl, tmpTarget):
   """Return argv to compile the rewritten sst.pp.* back to an object."""
   if plan.use_clangxx_host:
-    cmd = [plan.clang_cxx_bin, "-stdlib=libstdc++"]
+    cmd = [plan.clang_cxx_bin,
+           "-stdlib=libc++" if plan.use_libcxx else "-stdlib=libstdc++"]
   else:
+    if ctx.typ == "c++":
+      _warn_clangxx_fallback("_build_host_obj_cmd (host -c)")
     cmd = [ctx.compiler]
   cmd.extend(map(lambda x: "-D%s" % x, ctx.defines))
   cmd.extend(map(lambda x: "-D%s" % x, getattr(args, "D", [])))
@@ -608,7 +728,7 @@ def _build_cxx_init_cmd(ctx, args, plan, prefix, cxxInitSrcFile, cxxInitObjFile)
   if plan.use_clangxx_host:
     cmd = [
         plan.clang_cxx_bin,
-        "-stdlib=libstdc++",
+        "-stdlib=libc++" if plan.use_libcxx else "-stdlib=libstdc++",
         "-o",
         cxxInitObjFile,
         "-I%s/include" % prefix,
@@ -617,6 +737,8 @@ def _build_cxx_init_cmd(ctx, args, plan, prefix, cxxInitSrcFile, cxxInitObjFile)
         cxxInitSrcFile,
     ]
   else:
+    if ctx.typ == "c++":
+      _warn_clangxx_fallback("_build_cxx_init_cmd (sstGlobals -c)")
     cmd = [
         ctx.cxx,
         "-o",
@@ -662,6 +784,7 @@ def addSrc2SrcCompile(ctx, sourceFile, outputFile, args, cmds):
   from hgccvars import clangLibtoolingCxxFlagsStr, clangLibtoolingCFlagsStr
   from hgccvars import haveFloat128
   from hgccvars import sstStdFlag
+  clangMajorVersion = getattr(_hv, "clangMajorVersion", 0) or 0
 
   plan = _build_src2src_plan(
       ctx, sourceFile, args, _hv,
@@ -674,23 +797,29 @@ def addSrc2SrcCompile(ctx, sourceFile, outputFile, args, cmds):
     addPreprocess(
         ctx, sourceFile, ppTmpFile, args, cmds,
         compiler_flags=plan.host_cxx_flags_for_obj,
-        use_clang_cpp_for_e=(not plan.use_libcxx) and ctx.typ == "c++",
+        use_clang_cpp_for_e=ctx.typ == "c++",
         clang_exe_for_preprocess=plan.clang_cxx_bin,
         clang_cc_for_linux_preprocess=plan.clang_cc_linux,
+        stdlib_flag="libc++" if plan.use_libcxx else "libstdc++",
     )
 
   # System include roots for isInSystemHeader(). Use SSTHG_SYSTEM_INCLUDES so
   # the subprocess does not need --system-includes (llvm::cl + CommonOptionsParser
   # rejects that flag on some Apple/LLVM-linked ssthg_clang builds).
-  os.environ["SSTHG_SYSTEM_INCLUDES"] = \
-      _normalize_default_include_paths(defaultIncludePaths)
+  _sys_paths = _normalize_default_include_paths(defaultIncludePaths)
+  _extra_paths = _extra_system_includes_for_clang_dir(
+      getattr(_hv, "clangDir", None))
+  if _extra_paths:
+    _sys_paths = ":".join(_extra_paths) + (":" + _sys_paths if _sys_paths else "")
+  os.environ["SSTHG_SYSTEM_INCLUDES"] = _sys_paths
 
   srcRepl = addPrefixAndRebase("sst.pp.", sourceFile, objBaseFolder)
   cxxInitSrcFile = \
       addPrefixAndRebase("sstGlobals.pp.", sourceFile, objBaseFolder) + ".cpp"
 
   clangCmdArr = _build_ssthg_clang_cmd(
-      ctx, plan, prefix, ppTmpFile, haveFloat128)
+      ctx, plan, prefix, ppTmpFile, haveFloat128,
+      clangMajorVersion=clangMajorVersion)
   if not ctx.src2srcDebug:
     # None -> don't pipe output anywhere; clangCmdArr emits sst.pp.* + sstGlobals.*
     cmds.append([None, clangCmdArr, [ppTmpFile, srcRepl, cxxInitSrcFile]])
@@ -700,10 +829,10 @@ def addSrc2SrcCompile(ctx, sourceFile, outputFile, args, cmds):
 
   if llvmPasses:
     llvmFile = swapSuffix("ll", tmpTarget)
-    addEmitLlvm(ctx, srcRepl, llvmFile, args, cmds)
+    addEmitLlvm(ctx, srcRepl, llvmFile, args, cmds, plan=plan)
     for llvmPass in llvmPasses:
       addLlvmOptPass(ctx, llvmFile, llvmPass, args, cmds)
-    addLlvmCompile(ctx, llvmFile, tmpTarget, args, cmds)
+    addLlvmCompile(ctx, llvmFile, tmpTarget, args, cmds, plan=plan)
   else:
     hostCmd = _build_host_obj_cmd(ctx, args, plan, srcRepl, tmpTarget)
     cmds.append([None, hostCmd, [tmpTarget]])

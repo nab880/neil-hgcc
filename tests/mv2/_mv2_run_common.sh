@@ -143,5 +143,13 @@ if [[ "${SST_HG_MV2_SKIP_PREFLIGHT:-0}" != 1 ]]; then
   fi
 fi
 
-sst --verbose "run_${TEST_NAME}.py"
+# SST-HG global-var runtime is currently ASLR-sensitive on Linux: with ASLR on,
+# MPI_Init flakes ~30% of runs at MPIU_Handle_direct_init / MPID_nem_choose_netmod.
+# Run with ASLR disabled (setarch -R) to make the per-app data layout deterministic.
+# Honor SST_HG_MV2_NO_SETARCH=1 to opt out.
+if [[ "${SST_HG_MV2_NO_SETARCH:-0}" != 1 ]] && command -v setarch >/dev/null 2>&1; then
+  setarch "$(uname -m)" -R sst --verbose "run_${TEST_NAME}.py"
+else
+  sst --verbose "run_${TEST_NAME}.py"
+fi
 echo "PASS: run_${TEST_NAME} completed."

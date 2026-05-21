@@ -38,11 +38,10 @@ object. At simulation time, an SST Python script configures the network
 (Merlin) and operating system (Mercury), which loads your `.so` and runs the
 rewritten entry point.
 
-## Mental model — how your code runs under Mercury
+## How code runs under Mercury
 
-When the simulator loads your `.so`, your code is **not** running natively the
-way it would under `mpirun`. A few things change that explain almost every
-surprise newcomers hit:
+When the simulator loads your `.so`, code is **not** running natively the
+way it would under `mpirun`. A few things change:
 
 - **`main` is renamed.** `ssthg_clang` renames `main` to
   `sst_hg_user_main_<mangled>` and emits a wrapper Mercury calls once per rank
@@ -77,7 +76,6 @@ Install these in order before building sst-hgcc:
 | **SST Core** | Provides `sst-config` on your `PATH` |
 | **sst-elements** | Mercury/HG element; build with `--with-std=17` |
 | **LLVM 22** | With libTooling (required for `ssthg_clang`) |
-| **Python 3** | Used by wrapper scripts |
 | **C/C++ compiler** | Clang recommended (`CC=clang CXX=clang++`) |
 | **Autotools** | `autoconf`, `automake`, `libtool` (used by `./autogen.sh`) |
 

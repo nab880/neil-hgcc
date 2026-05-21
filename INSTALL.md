@@ -1,9 +1,22 @@
 # Installing SST-HGCC
 
+For full documentation (Mercury app examples, pragma reference, configuration
+options, and code layout), see [README.md](README.md).
+
+## Prerequisites
+
+Install these **before** sst-hgcc:
+
+1. **SST Core** — provides `sst-config` on your `PATH`
+2. **sst-elements** — Mercury/HG element (built with C++17)
+3. **LLVM 22** — with libTooling (required for the `ssthg_clang` rewriter)
+
+## Build and install
+
 ```bash
-curl -LO https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/llvm-project-18.1.8.src.tar.xz
-tar -xf llvm-project-18.1.8.src.tar.xz
-cd llvm-project-18.1.8.src
+curl -LO https://github.com/llvm/llvm-project/releases/download/llvmorg-22/llvm-project-22.src.tar.xz
+tar -xf llvm-project-22.src.tar.xz
+cd llvm-project-22.src
 mkdir build && cd build
 
 ccmake -S ../llvm \
@@ -11,7 +24,7 @@ ccmake -S ../llvm \
 -DLLVM_ENABLE_RUNTIMES=all \
 -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
--DCMAKE_INSTALL_PREFIX=$HOME/llvm-project-18.1.8.src/install \
+-DCMAKE_INSTALL_PREFIX=$HOME/llvm-project-22.src/install \
 -DLLVM_INCLUDE_TESTS=OFF \
 -DLLVM_ENABLE_ZSTD=OFF \
 -DLLVM_TARGETS_TO_BUILD=host \
@@ -19,12 +32,25 @@ ccmake -S ../llvm \
 
 ninja -j 6 && ninja install
 
-export PATH=$HOME/llvm-project-18.1.8.src/install/bin:$PATH
+export PATH=$HOME/llvm-project-22.src/install/bin:$PATH
 # Required on Mac only!
 export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
 
 # use llvm lld; sometimes regular ld fails
 export LDFLAGS="-fuse-ld=lld"
+
+cd
+
+# Install SST Core (required — sst-config must be on PATH)
+git clone https://github.com/sstsimulator/sst-core.git
+cd sst-core
+./autogen.sh
+mkdir build && cd build
+../configure CXX=clang++ CC=clang \
+  --with-std=17 \
+  --prefix=$HOME/sst-core/install
+make V=1 && make install
+export PATH=$HOME/sst-core/install/bin:$PATH
 
 cd
 
@@ -51,16 +77,18 @@ mkdir build && cd build
 ../configure CXX=clang++ CC=clang \
 --with-std=17 \
 --prefix=$HOME/sst-hgcc/install \
+--with-sst-core=$HOME/sst-core/install \
 --with-sst-elements=$HOME/sst-elements/install \
---with-clang=$HOME/llvm-project-18.1.8.src/install
+--with-clang=$HOME/llvm-project-22.src/install
 
 make V=1 && make install
 
 export PATH=$HOME/sst-hgcc/install/bin:$PATH
 
-# Test that hgcc works
-cd ../tests
-./build.sh
+# Verify the install
+hg++ --version
+make check          # lit rewriter tests (optional)
+make installcheck   # SST integration test (requires sst on PATH)
 ```
 
 The above command should generate (roughly) the following output:
@@ -195,11 +223,10 @@ if __name__ == "__main__":
 
     platform.addParamSet("operating_system", {
         "app1.name" : "test_tls",
-        "app1.exe"  : "test_tls.so",
-        "app1.libraries" : ["SystemLibrary:libsystemlibrary.so",
-                            "ComputeLibrary:libcomputelibrary.so",
-                            "SimTransport:libsumi.so",
-                            "MpiApi:libmask_mpi.so"],
+        "app1.exe_library_name" : "test_tls",
+        "app1.dependencies" : ["sumi", ],
+        "app1.libraries" : ["computelibrary:ComputeLibrary",
+                            "mask_mpi:MpiApi",],
     })
 
     topo = topoSingle()

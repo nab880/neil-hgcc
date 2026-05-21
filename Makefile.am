@@ -35,6 +35,7 @@ if HAVE_CLANG
 bin_PROGRAMS = ssthg_clang
 
 include tests/Makefile.am
+include examples/Makefile.am
 
 ssthg_clang_SOURCES = \
   clang/util.cc \

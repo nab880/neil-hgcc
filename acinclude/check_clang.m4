@@ -121,6 +121,15 @@ AC_DEFUN([CHECK_CLANG_LLVM], [
     else
       AM_CONDITIONAL(CLANG_NEED_LIBCPP,false)
     fi
+    dnl LLVM 16+ commonly ships libclang-cpp as the supported C++ API link
+    dnl target. Linking individual libclang*.a archives can leave unresolved
+    dnl symbols on Homebrew LLVM 22 and similar installs.
+    if test "$clang_major_version" -ge 16; then
+      CLANG_LINK_MONOLITHIC=yes
+    else
+      CLANG_LINK_MONOLITHIC=no
+    fi
+    AM_CONDITIONAL([CLANG_LINK_MONOLITHIC], [test "X$CLANG_LINK_MONOLITHIC" = "Xyes"])
 
     clang_compatibility=`$pyexe $srcdir/config_tools/check_clang_compatibility $CXX $clang $srcdir/config_tools/clang_version_test.cc $CXXFLAGS $STD_CXXFLAGS $SST_CXXFLAGS`
 

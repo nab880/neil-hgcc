@@ -135,6 +135,14 @@ install-data-local:
 	rm -f $(DESTDIR)$(includedir)/replacements/ssthg_pthread_clear.h.in
 	rm -f $(DESTDIR)$(includedir)/replacements/libraries/pthread/sstmac_sys_types.h.in
 
+if CLANG_LINK_MONOLITHIC
+ssthg_clang_LDFLAGS = $(CLANG_LDFLAGS) \
+ -Wl,-rpath,@CLANG_INSTALL_DIR@/lib \
+ -lclang-cpp \
+ -lclang \
+ @CLANG_LIBTOOLING_LIBS@ \
+ @CLANG_LIBTOOLING_SYSTEM_LIBS@
+else
 ssthg_clang_LDFLAGS = $(CLANG_LDFLAGS) \
  -Wl,-rpath,@CLANG_INSTALL_DIR@/lib \
  @LINK_GROUP_START@ \
@@ -164,6 +172,7 @@ ssthg_clang_LDFLAGS = $(CLANG_LDFLAGS) \
  -lclangAnalysisLifetimeSafety \
  @CLANG_LIBTOOLING_LIBS@ \
  @CLANG_LIBTOOLING_SYSTEM_LIBS@ @LINK_GROUP_END@
+endif
 
 # TODO Figure out why this was included
 # if CLANG_NEED_LIBCPP

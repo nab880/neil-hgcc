@@ -125,7 +125,7 @@ jobs:
           compression-level: 9
           retention-days: 5
 
-  ubuntu-24.04:
+  ubuntu-24_04:
     runs-on: ubuntu-24.04
     env:
       INSTALL_PREFIX: ${{ github.workspace }}/install

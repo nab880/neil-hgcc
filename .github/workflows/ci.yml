@@ -1,0 +1,27 @@
+---
+name: ci
+
+# yamllint disable-line rule:truthy
+on:
+  push:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event.pull_request.number || github.run_number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  tests:
+    uses: ./.github/workflows/build_and_test.yml
+  all-tests:
+    needs: [tests]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Success
+        run: "true"

@@ -1,0 +1,126 @@
+---
+name: sst-hgcc build/test
+
+# yamllint disable-line rule:truthy
+on:
+  workflow_call:
+  workflow_dispatch:
+
+concurrency:
+  group: build-and-test-${{ github.ref }}-${{ github.event.pull_request.number || github.run_number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  macos-14:
+    runs-on: macos-14
+    env:
+      INSTALL_PREFIX: ${{ github.workspace }}/install
+      LLVM_ROOT: /opt/homebrew/opt/llvm@22
+      FILECHECK: /opt/homebrew/opt/llvm@22/bin/FileCheck
+      TERM: dumb
+    steps:
+      - name: Clone core
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          path: sst-core
+          persist-credentials: false
+          ref: devel
+          repository: sstsimulator/sst-core
+
+      - name: Clone elements
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          path: sst-elements
+          persist-credentials: false
+          ref: devel
+          repository: sstsimulator/sst-elements
+
+      - name: Clone hgcc
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          path: sst-hgcc
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          brew install \
+            autoconf \
+            automake \
+            ccache \
+            libtool \
+            lit \
+            llvm@22 \
+            open-mpi
+
+      - name: Set environment
+        run: |
+          echo "${LLVM_ROOT}/bin" >> "${GITHUB_PATH}"
+          echo "PATH=${LLVM_ROOT}/bin:${PATH}" >> "${GITHUB_ENV}"
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "${GITHUB_ENV}"
+          echo "MAKEFLAGS=-j$(sysctl -n hw.ncpu)" >> "${GITHUB_ENV}"
+          echo "CC=clang" >> "${GITHUB_ENV}"
+          echo "CXX=clang++" >> "${GITHUB_ENV}"
+
+      - name: Build and install core
+        run: |
+          pushd sst-core
+          ./autogen.sh
+          popd
+          mkdir -p sst-core-build
+          pushd sst-core-build
+          ../sst-core/configure --prefix="${INSTALL_PREFIX}"
+          make install
+          popd
+
+      - name: Build and install elements
+        run: |
+          pushd sst-elements
+          ./autogen.sh
+          popd
+          mkdir -p sst-elements-build
+          pushd sst-elements-build
+          ../sst-elements/configure \
+            --prefix="${INSTALL_PREFIX}" \
+            --with-sst-core="${INSTALL_PREFIX}"
+          make install
+          popd
+
+      - name: Build hgcc
+        run: |
+          export PATH="${INSTALL_PREFIX}/bin:${LLVM_ROOT}/bin:${PATH}"
+          pushd sst-hgcc
+          ./autogen.sh
+          popd
+          mkdir -p sst-hgcc-build
+          pushd sst-hgcc-build
+          ../sst-hgcc/configure \
+            --prefix="${INSTALL_PREFIX}" \
+            --with-sst-core="${INSTALL_PREFIX}" \
+            --with-sst-elements="${INSTALL_PREFIX}" \
+            --with-clang="${LLVM_ROOT}" \
+            --with-std=17 \
+            --enable-strict-tests
+          make
+          popd
+
+      - name: Test hgcc
+        run: |
+          export PATH="${INSTALL_PREFIX}/bin:${LLVM_ROOT}/bin:${PATH}"
+          pushd sst-hgcc-build
+          make check
+          popd
+
+      - name: Upload hgcc test artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: hgcc-test-output-macos-14
+          path: |
+            sst-hgcc-build/tests/lit-junit.xml
+            sst-hgcc/tests/lit-tests/Output
+            sst-hgcc-build/tests/out.log
+          if-no-files-found: ignore
+          compression-level: 9
+          retention-days: 5

@@ -2,7 +2,7 @@
 AC_DEFUN([CHECK_STL_REPLACEMENT_HEADERS], [
 	use_replacements=$1	
 #no matter what, we need the sys type header
-AC_SUBST([SYS_TYPES_FULL_PATH], "`$pyexe $srcdir/bin/config_tools/get_include_path $CXX sys/types.h $CPPFLAGS $CXXFLAGS`")
+AC_SUBST([SYS_TYPES_FULL_PATH], "`$pyexe $srcdir/config_tools/get_include_path $CXX sys/types.h $CPPFLAGS $CXXFLAGS`")
 AC_CONFIG_FILES([
  replacements/libraries/pthread/sstmac_sys_types.h
 ])

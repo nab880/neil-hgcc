@@ -45,9 +45,21 @@ Questions? Contact sst-macro-help@sandia.gov
 
 import sys
 import os
+import shutil
 from configlib import getoutput
 
-ldflags = getoutput("python-config --ldflags")
+pyconfigs = [
+  os.environ.get("PYTHON_CONFIG"),
+  os.path.basename(sys.executable) + "-config",
+  "python3-config",
+  "python-config",
+]
+for pyconfig in pyconfigs:
+  if pyconfig and shutil.which(pyconfig):
+    ldflags = getoutput(pyconfig + " --ldflags")
+    break
+else:
+  raise RuntimeError("could not find python-config for " + sys.executable)
 
 if sys.version_info >= (3,0):
   interpreterPath = os.path.split(sys.executable)[0]

@@ -20,6 +20,9 @@ jobs:
       LLVM_ROOT: /opt/homebrew/opt/llvm@22
       FILECHECK: /opt/homebrew/opt/llvm@22/bin/FileCheck
       TERM: dumb
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
+      CCACHE_COMPILERCHECK: content
     steps:
       - name: Clone core
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -54,14 +57,23 @@ jobs:
             llvm@22 \
             open-mpi
 
+      - name: Restore ccache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ runner.os }}-llvm22-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ runner.os }}-llvm22-
+
       - name: Set environment
         run: |
           echo "${LLVM_ROOT}/bin" >> "${GITHUB_PATH}"
           echo "PATH=${LLVM_ROOT}/bin:${PATH}" >> "${GITHUB_ENV}"
           echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "${GITHUB_ENV}"
           echo "MAKEFLAGS=-j$(sysctl -n hw.ncpu)" >> "${GITHUB_ENV}"
-          echo "CC=clang" >> "${GITHUB_ENV}"
-          echo "CXX=clang++" >> "${GITHUB_ENV}"
+          echo "CC=ccache clang" >> "${GITHUB_ENV}"
+          echo "CXX=ccache clang++" >> "${GITHUB_ENV}"
+          ccache --zero-stats
 
       - name: Build and install core
         run: |
@@ -104,6 +116,7 @@ jobs:
             --enable-strict-tests
           make
           popd
+          ccache --show-stats
 
       - name: Test hgcc
         run: |
@@ -132,6 +145,9 @@ jobs:
       LLVM_ROOT: /usr/lib/llvm-22
       FILECHECK: /usr/lib/llvm-22/bin/FileCheck
       TERM: dumb
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
+      CCACHE_COMPILERCHECK: content
     steps:
       - name: Clone core
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -178,13 +194,22 @@ jobs:
             llvm-22-dev
           python3 -m pip install lit
 
+      - name: Restore ccache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ runner.os }}-llvm22-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ runner.os }}-llvm22-
+
       - name: Set environment
         run: |
           echo "${LLVM_ROOT}/bin" >> "${GITHUB_PATH}"
           echo "PATH=${LLVM_ROOT}/bin:${PATH}" >> "${GITHUB_ENV}"
           echo "MAKEFLAGS=-j$(nproc)" >> "${GITHUB_ENV}"
-          echo "CC=gcc" >> "${GITHUB_ENV}"
-          echo "CXX=g++" >> "${GITHUB_ENV}"
+          echo "CC=ccache gcc" >> "${GITHUB_ENV}"
+          echo "CXX=ccache g++" >> "${GITHUB_ENV}"
+          ccache --zero-stats
 
       - name: Build and install core
         run: |
@@ -225,10 +250,11 @@ jobs:
             --with-clang="${LLVM_ROOT}" \
             --with-std=17 \
             --enable-strict-tests \
-            CC=gcc \
-            CXX=g++
+            CC="ccache gcc" \
+            CXX="ccache g++"
           make
           popd
+          ccache --show-stats
 
       - name: Test hgcc
         run: |

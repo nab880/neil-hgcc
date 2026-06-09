@@ -113,8 +113,10 @@ jobs:
             --with-sst-elements="${INSTALL_PREFIX}" \
             --with-clang="${LLVM_ROOT}" \
             --with-std=17 \
-            --enable-strict-tests
-          make
+            --enable-strict-tests \
+            CC=clang \
+            CXX=clang++
+          make CC="ccache clang" CXX="ccache clang++"
           popd
           ccache --show-stats
 
@@ -250,9 +252,9 @@ jobs:
             --with-clang="${LLVM_ROOT}" \
             --with-std=17 \
             --enable-strict-tests \
-            CC="ccache gcc" \
-            CXX="ccache g++"
-          make
+            CC=gcc \
+            CXX=g++
+          make CC="ccache gcc" CXX="ccache g++"
           popd
           ccache --show-stats
 

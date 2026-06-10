@@ -37,8 +37,8 @@ jobs:
         with:
           path: sst-elements
           persist-credentials: false
-          ref: fix-sumi-straddr-buffer
-          repository: nab880/sst-elements
+          ref: devel
+          repository: sstsimulator/sst-elements
 
       - name: Clone hgcc
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -164,8 +164,8 @@ jobs:
         with:
           path: sst-elements
           persist-credentials: false
-          ref: fix-sumi-straddr-buffer
-          repository: nab880/sst-elements
+          ref: devel
+          repository: sstsimulator/sst-elements
 
       - name: Clone hgcc
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4

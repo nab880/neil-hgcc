@@ -19,6 +19,7 @@ lit-tests: $(top_builddir)/hgcc $(top_builddir)/hg++ $(top_builddir)/ssthg_clang
 	   || @pyexe@ -m lit --help >/dev/null 2>&1; then \
 	    PATH=$${lit_dir:+$$lit_dir:}$$PATH \
 	    HGCC=$(abs_top_builddir)/hgcc \
+	    HGXX=$(abs_top_builddir)/hg++ \
 	    SSTHG_CLANG=$(abs_top_builddir)/ssthg_clang \
 	    FILECHECK=$${FILECHECK:-@FILECHECK@} \
 	    PYTHONPATH=$(abs_top_builddir):$(abs_top_srcdir)$${PYTHONPATH:+:$${PYTHONPATH}} \

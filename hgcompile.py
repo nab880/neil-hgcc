@@ -96,6 +96,34 @@ def _warn_clangxx_fallback(where):
       % where)
 
 
+def _is_cuda_source(path):
+  """True for a CUDA TU path. Decided per file, not per invocation, so a
+  mixed `hg++ -c a.cc b.cu` never puts CUDA flags on a.cc's commands. Every
+  stage re-derives the answer from the path it already receives; that works
+  because addPrefixAndRebase preserves the .cu suffix on the pp.* / sst.pp.*
+  intermediates -- renaming those would silently break CUDA detection."""
+  return bool(path) and path.endswith(".cu")
+
+
+def _cuda_lang_flags(args):
+  """Clang flags for toolkit-free CUDA host-only parsing (CUDA_PLAN.md D2).
+  --cuda-gpu-arch is optional for the host-only parse but passed anyway so
+  __CUDA_ARCH__-dependent user code preprocesses deterministically.
+
+  __host__/__device__ are pre-defined here because clang's resource-dir
+  cuda_wrappers/ headers (active even with -nocudainc) use them, and the
+  skeleton.h -include drags libc++ <algorithm> through those wrappers
+  before any user #include can define the macros. The definitions are
+  token-identical to the replacement headers' so their #ifndef-guarded
+  block redefines them silently. Safe unquoted: cmds run Popen(argv), no
+  shell (see the -D__builtin_clzg(...) precedent)."""
+  arch = getattr(args, "cuda_gpu_arch", None) or "sm_70"
+  return ["-x", "cuda", "--cuda-host-only", "-nocudainc", "-nocudalib",
+          "--cuda-gpu-arch=%s" % arch,
+          "-D__host__=__attribute__((host))",
+          "-D__device__=__attribute__((device))"]
+
+
 def _argv_drop_compiler_leader(argv):
   """Drop compile_commands argv[0] driver name."""
   if not argv:
@@ -461,6 +489,7 @@ def addPreprocess(
     clang_cc_for_linux_preprocess=None,
     stdlib_flag="libstdc++",
 ):
+  cuda = _is_cuda_source(sourceFile)
   if use_clang_cpp_for_e and ctx.typ == "c++":
     if clang_exe_for_preprocess:
       clang_pp = clang_exe_for_preprocess
@@ -475,12 +504,24 @@ def addPreprocess(
     if clang_pp:
       ppArgs = [clang_pp, "-stdlib=%s" % stdlib_flag]
     else:
+      if cuda:
+        # g++ cannot preprocess -x cuda; a driver mismatch here would fail
+        # later with misleading diagnostics, so refuse up front.
+        sys.exit("hgcc: error: preprocessing %s requires the configured LLVM "
+                 "clang++, and none was resolved from hgccvars.clangDir or "
+                 "-I flags; re-configure sst-hgcc with "
+                 "--with-clang=<llvm-install>" % sourceFile)
       _warn_clangxx_fallback("addPreprocess (-E)")
       ppArgs = [ctx.compiler]
   elif clang_cc_for_linux_preprocess:
     ppArgs = [clang_cc_for_linux_preprocess, "-fgnuc-version=10"]
   else:
     ppArgs = [ctx.compiler]
+  if cuda:
+    if not (use_clang_cpp_for_e and ctx.typ == "c++"):
+      sys.exit("hgcc: error: %s must be driven as C++ (use hg++); the C "
+               "driver cannot preprocess CUDA" % sourceFile)
+    ppArgs.extend(_cuda_lang_flags(args))
   ppArgs.extend(map(lambda x: "-D%s" % x, ctx.defines))
   ppArgs.extend(map(lambda x: "-D%s" % x, args.D))
   ppArgs.extend(map(lambda x: "-I%s" % x, args.I)) 
@@ -504,6 +545,10 @@ def addEmitLlvm(ctx, sourceFile, outputFile, args, cmds, plan=None):
   cmdArr.extend(["-emit-llvm", "-S"])
   if plan is None or not plan.use_clangxx_host:
     cmdArr.append("--no-integrated-cpp")
+  if _is_cuda_source(sourceFile):
+    # rewritten .cu compiles as C++ here too; addLlvmCompile must stay
+    # untouched -- its input is .ll and -x c++ would break it.
+    cmdArr.extend(["-x", "c++"])
   cmdArr.extend([sourceFile, "-o", outputFile])
   if args.O:
     cmds.append("-O%s" % args.O)
@@ -562,6 +607,7 @@ class _Src2SrcPlan:
       "use_libcxx", "ast_gnuxx_remap", "cxx_resource",
       "base_argv", "host_cxx_flags_for_obj", "ast_resource_tokens",
       "clang_cc_linux", "clang_cxx_bin", "use_clangxx_host",
+      "cuda_flags",
   )
 
 
@@ -577,6 +623,7 @@ def _build_src2src_plan(ctx, sourceFile, args, _hv,
   p.use_libcxx = _hgcc_bool_attr(_hv, "useLibcxxForAst", False)
   p.ast_gnuxx_remap = _hgcc_bool_attr(_hv, "astGnuxxRemap", False)
   p.cxx_resource = getattr(_hv, "clangLibtoolingCxxResourceStr", "").strip()
+  p.cuda_flags = _cuda_lang_flags(args) if _is_cuda_source(sourceFile) else []
 
   # Build AST argv first so g++ -E uses the same -std= as ssthg_clang (libstdc++).
   base_argv = compile_commands_argv_for_source(sourceFile)
@@ -663,6 +710,7 @@ def _build_ssthg_clang_cmd(ctx, plan, prefix, ppTmpFile, haveFloat128,
   cmd = [clangDeglobal, ppTmpFile]
   cmd.extend(ctx.clangArgs)
   cmd.append("--")
+  cmd.extend(plan.cuda_flags)
   # Linux C: pp.* should come from clang -fgnuc-version=10 -E (see addPreprocess). Keep
   # the same for any remaining parse so libc feature tests stay consistent.
   if ctx.typ != "c++" and sys.platform.startswith("linux"):
@@ -724,6 +772,12 @@ def _build_host_obj_cmd(ctx, args, plan, srcRepl, tmpTarget):
     cmd.append("--no-integrated-cpp")
   cmd.append("-o")
   cmd.append(tmpTarget)
+  if _is_cuda_source(srcRepl):
+    # sst.pp.foo.cu would re-enter CUDA mode by suffix; after the rewriter
+    # it must compile as plain C++ (P1: the surviving <<< is the expected
+    # negative-test parse error until the P2 rewriter lowers launches).
+    cmd.append("-x")
+    cmd.append("c++")
   cmd.append("-c")
   cmd.append(srcRepl)
   if args.O:

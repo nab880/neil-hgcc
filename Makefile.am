@@ -45,9 +45,10 @@ ssthg_clang_SOURCES = \
   clang/computePragma.cc \
   clang/computeVisitor.cc \
   clang/replacePragma.cc \
+  clang/gpuPragma.cc \
   clang/astConsumers.cc \
   clang/frontendActions.cc \
-  clang/astVisitor.cc 
+  clang/astVisitor.cc
 
 if USE_REPLACEMENT_HEADERS
 	nobase_library_include_HEADERS += \

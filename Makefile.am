@@ -119,10 +119,12 @@ endif
 install-data-local:
 	$(MKDIR_P) $(DESTDIR)$(includedir)/hgcc/libraries/pthread
 	cp $(srcdir)/hgcc_include/libraries/pthread/hgcc_pthread_spinlock.h $(DESTDIR)$(includedir)/hgcc/libraries/pthread/
+	cp $(srcdir)/hgcc_include/libraries/hg_cuda.h $(DESTDIR)$(includedir)/hgcc/libraries/
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/sys
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/linux
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/mpi
+	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/cuda
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/libraries
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/libraries/pthread
 	cp -r $(srcdir)/replacements/* $(DESTDIR)$(includedir)/replacements/
@@ -184,10 +186,12 @@ else
 install-data-local:
 	$(MKDIR_P) $(DESTDIR)$(includedir)/hgcc/libraries/pthread
 	cp $(srcdir)/hgcc_include/libraries/pthread/hgcc_pthread_spinlock.h $(DESTDIR)$(includedir)/hgcc/libraries/pthread/
+	cp $(srcdir)/hgcc_include/libraries/hg_cuda.h $(DESTDIR)$(includedir)/hgcc/libraries/
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/sys
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/linux
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/mpi
+	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/cuda
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/libraries
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/libraries/pthread
 	cp -r $(srcdir)/replacements/* $(DESTDIR)$(includedir)/replacements/

@@ -46,6 +46,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #define bin_clang_replAstVisitor_h
 
 #include "clangHeaders.h"
+#include "clang/AST/Mangle.h"
 #include "pragmas.h"
 #include "globalVarNamespace.h"
 
@@ -500,6 +501,14 @@ class SkeletonASTVisitor : public clang::RecursiveASTVisitor<SkeletonASTVisitor>
    * @return
    */
   bool TraverseCallExpr(clang::CallExpr* expr, DataRecursionQueue* queue = nullptr);
+
+  /**
+   * @brief TraverseCUDAKernelCallExpr Lower a `kernel<<<grid,block>>>(args)`
+   * launch to a sst_hg_cuda_launch(...) ABI call. CUDA mode only; honors
+   * #pragma sst delete and reads #pragma sst gpu_compute costs.
+   */
+  bool TraverseCUDAKernelCallExpr(clang::CUDAKernelCallExpr* expr,
+                                  DataRecursionQueue* queue = nullptr);
 
   bool TraverseUnresolvedLookupExpr(clang::UnresolvedLookupExpr* expr,
                                     DataRecursionQueue* queue = nullptr);
@@ -1020,6 +1029,13 @@ class SkeletonASTVisitor : public clang::RecursiveASTVisitor<SkeletonASTVisitor>
   std::list<clang::Expr*> activeDerefs_;
   std::list<clang::IfStmt*> activeIfs_;
   int insideCxxMethod_;
+
+  /** CUDA launch rewriting: a counter for unique launch temporaries and a lazy
+   *  Itanium mangler for kernel names (sst_hg_cuda_launch's first argument). */
+  int cudaLaunchCounter_ = 0;
+  std::unique_ptr<clang::MangleContext> cudaMangler_;
+  void rewriteCudaLaunch(clang::CUDAKernelCallExpr* expr);
+  std::string mangleKernelName(clang::FunctionDecl* kernel);
 
   /** Lookup tables for functions or variables needing special operations */
   std::set<std::string> ssthgFxnPrepends_;

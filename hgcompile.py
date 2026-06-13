@@ -773,11 +773,13 @@ def _build_host_obj_cmd(ctx, args, plan, srcRepl, tmpTarget):
   cmd.append("-o")
   cmd.append(tmpTarget)
   if _is_cuda_source(srcRepl):
-    # sst.pp.foo.cu would re-enter CUDA mode by suffix; after the rewriter
-    # it must compile as plain C++ (P1: the surviving <<< is the expected
-    # negative-test parse error until the P2 rewriter lowers launches).
-    cmd.append("-x")
-    cmd.append("c++")
+    # Compile the rewritten sst.pp.foo.cu in the same CUDA host-only mode it was
+    # preprocessed in. CUDA-mode preprocessing bakes clang's cuda_wrappers/ libc++
+    # shims into the output (via skeleton.h -> <list>), and those only recompile
+    # in CUDA mode -- as plain -x c++ they error. The rewriter lowers every <<<
+    # to sst_hg_cuda_launch and strips device bodies, so nothing CUDA-syntactic
+    # survives to need a host toolkit.
+    cmd.extend(_cuda_lang_flags(args))
   cmd.append("-c")
   cmd.append(srcRepl)
   if args.O:

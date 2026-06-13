@@ -45,11 +45,14 @@ Questions? Contact sst-macro-help@sandia.gov
 #include "astVisitor.h"
 #include "replacePragma.h"
 #include "computePragma.h"
+#include "gpuPragma.h"
+#include "clang/AST/Mangle.h"
 #include  <sys/time.h>
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
+#include <cctype>
 #include <hgcc_config.h>
 
 clang::LangOptions Printing::langOpts;
@@ -415,6 +418,18 @@ SkeletonASTVisitor::shouldVisitDecl(VarDecl* D)
 {
   if (keepGlobals_ || isa<ParmVarDecl>(D) || D->isImplicit() || insideCxxMethod_){
     return false;
+  }
+
+  // CUDA __device__/__constant__ variables have no host storage, so they are
+  // not privatized into get_sst_hg_global_data() offset lookups like host
+  // globals.
+  if (D->hasAttrs()){
+    for (Attr* attr : D->getAttrs()){
+      if (attr->getKind() == attr::CUDADevice ||
+          attr->getKind() == attr::CUDAConstant){
+        return false;
+      }
+    }
   }
 
   //ignore eli variables
@@ -1121,6 +1136,148 @@ SkeletonASTVisitor::TraverseCallExpr(CallExpr* expr, DataRecursionQueue*  /*queu
         }
       }
     });
+  } catch (StmtDeleteException& e) {
+    if (e.deleted != expr) throw e;
+  }
+  return true;
+}
+
+static bool
+isSideEffectFreeLaunchArg(const Expr* e)
+{
+  e = e->IgnoreParenImpCasts();
+  switch (e->getStmtClass()){
+    case Stmt::DeclRefExprClass:
+    case Stmt::IntegerLiteralClass:
+    case Stmt::FloatingLiteralClass:
+    case Stmt::CXXBoolLiteralExprClass:
+    case Stmt::CharacterLiteralClass:
+    case Stmt::StringLiteralClass:
+    case Stmt::CXXNullPtrLiteralExprClass:
+      return true;
+    case Stmt::MemberExprClass:
+      return isSideEffectFreeLaunchArg(cast<MemberExpr>(e)->getBase());
+    case Stmt::UnaryOperatorClass: {
+      auto* u = cast<UnaryOperator>(e);
+      if (u->isIncrementDecrementOp()) return false;
+      return isSideEffectFreeLaunchArg(u->getSubExpr());
+    }
+    default:
+      return false;
+  }
+}
+
+// In host compilation clang mangles a __global__ kernel as its host launch stub
+// __device_stub__<name>. The kernel's identity (and what calibration keys on) is
+// the device symbol, so strip the stub infix and fix the Itanium length prefix:
+// e.g. _Z21__device_stub__vecAddPKfS0_Pfi -> _Z6vecAddPKfS0_Pfi.
+static std::string
+stripDeviceStub(const std::string& mangled)
+{
+  static const std::string stub = "__device_stub__";
+  auto pos = mangled.find(stub);
+  if (pos == std::string::npos) return mangled;
+  size_t numEnd = pos, numBeg = pos;
+  while (numBeg > 0 && std::isdigit((unsigned char)mangled[numBeg - 1])) --numBeg;
+  if (numBeg == numEnd) return mangled;
+  int len = std::atoi(mangled.substr(numBeg, numEnd - numBeg).c_str());
+  int newLen = len - (int)stub.size();
+  if (newLen <= 0) return mangled;
+  return mangled.substr(0, numBeg) + std::to_string(newLen) +
+         mangled.substr(pos + stub.size());
+}
+
+std::string
+SkeletonASTVisitor::mangleKernelName(FunctionDecl* kernel)
+{
+  if (!cudaMangler_){
+    cudaMangler_.reset(clang::ItaniumMangleContext::create(
+        CompilerGlobals::ASTContext(), CompilerGlobals::CI().getDiagnostics()));
+  }
+  if (!cudaMangler_->shouldMangleDeclName(kernel)){
+    return kernel->getNameAsString();
+  }
+  std::string out;
+  llvm::raw_string_ostream os(out);
+  cudaMangler_->mangleName(kernel, os);
+  os.flush();
+  return stripDeviceStub(out);
+}
+
+void
+SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
+{
+  FunctionDecl* kernel = expr->getDirectCallee();
+  if (!kernel){
+    errorAbort(expr, "could not resolve the kernel of a <<<>>> launch "
+                     "(dependent or unresolved). Instantiate the kernel, or "
+                     "annotate it with #pragma sst gpu_compute");
+  }
+
+  std::string kernelName = mangleKernelName(kernel);
+
+  // <<<grid, block, shmem, stream>>>: the config is a cudaConfigureCall whose
+  // args are grid, block, and optionally shared-mem and stream (defaulted to 0).
+  CallExpr* cfg = expr->getConfig();
+  auto cfgArg = [&](unsigned i, const char* dflt) -> std::string {
+    if (!cfg || i >= cfg->getNumArgs()) return dflt;
+    Expr* a = cfg->getArg(i);
+    if (isa<CXXDefaultArgExpr>(a)) return dflt;
+    return printWithGlobalsReplaced(a);
+  };
+  std::string gridStr  = cfgArg(0, "1");
+  std::string blockStr = cfgArg(1, "1");
+  std::string shmemStr = cfgArg(2, "0");
+  std::string streamStr = cfgArg(3, "0");
+
+  // Costs: a pragma on the launch statement wins over one on the kernel decl;
+  // absent either, model zero GPU work and warn once.
+  const GpuComputeCost* cost = SSTGpuComputePragma::costForStmt(expr);
+  if (!cost) cost = SSTGpuComputePragma::costForDecl(kernel);
+  std::string F = cost ? cost->flops : "0";
+  std::string I = cost ? cost->intops : "0";
+  std::string R = cost ? cost->bytesRead : "0";
+  std::string W = cost ? cost->bytesWritten : "0";
+  if (!cost){
+    warn(getStart(expr), "CUDA kernel launch has no #pragma sst gpu_compute "
+                         "costs; modeling it with zero GPU work");
+  }
+
+  int id = cudaLaunchCounter_++;
+  std::stringstream os;
+  // GNU statement-expression: bind the configs to dim3 temporaries (normalizing
+  // the int/dim3/var forms via the 1-filling ctor) and preserve any
+  // side-effecting launch arguments, since the kernel itself is not executed.
+  os << "({ dim3 __sst_g_" << id << " = (" << gridStr << "); "
+     << "dim3 __sst_b_" << id << " = (" << blockStr << "); ";
+  for (unsigned i = 0; i < expr->getNumArgs(); ++i){
+    Expr* arg = expr->getArg(i);
+    if (!isSideEffectFreeLaunchArg(arg)){
+      os << "(void)(" << printWithGlobalsReplaced(arg) << "); ";
+    }
+  }
+  os << "sst_hg_cuda_launch(\"" << kernelName << "\", "
+     << "__sst_g_" << id << ".x, __sst_g_" << id << ".y, __sst_g_" << id << ".z, "
+     << "__sst_b_" << id << ".x, __sst_b_" << id << ".y, __sst_b_" << id << ".z, "
+     << "(" << shmemStr << "), (void*)(" << streamStr << "), "
+     << F << ", " << I << ", " << R << ", " << W << "); })";
+
+  ::replace(expr, os.str());
+}
+
+bool
+SkeletonASTVisitor::TraverseCUDAKernelCallExpr(CUDAKernelCallExpr* expr,
+                                               DataRecursionQueue* /*queue*/)
+{
+  if (!CompilerGlobals::CI().getLangOpts().CUDA){
+    return Parent::TraverseCUDAKernelCallExpr(expr);
+  }
+  try {
+    PragmaActivateGuard pag(expr, this);
+    if (pag.skipVisit()) return true; //e.g. #pragma sst delete on the launch
+    if (CompilerGlobals::modeActive(SKELETONIZE | SHADOWIZE)){
+      rewriteCudaLaunch(expr);
+    }
   } catch (StmtDeleteException& e) {
     if (e.deleted != expr) throw e;
   }
@@ -1967,10 +2124,34 @@ SkeletonASTVisitor::TraverseFunctionDecl(clang::FunctionDecl* D)
     return true;
   }
 
+  // CUDA device code: a __global__ kernel or a device-only (__device__ without
+  // __host__) function. Its body is device code that host-only skeletonization
+  // must not rewrite -- e.g. the free() in clang's cuda_wrappers operator delete
+  // would be prepended to sst_hg_::free. We never traverse the body; for a user
+  // kernel (not a system header) we also strip the body text so nothing
+  // device-side reaches the host compile. __host__ __device__ is left intact.
+  bool cudaDeviceCode = false;
+  if (CompilerGlobals::CI().getLangOpts().CUDA && D->hasAttrs()){
+    bool isGlobal = false, isDevice = false, isHost = false;
+    for (Attr* attr : D->getAttrs()){
+      switch (attr->getKind()){
+        case attr::CUDAGlobal: isGlobal = true; break;
+        case attr::CUDADevice: isDevice = true; break;
+        case attr::CUDAHost: isHost = true; break;
+        default: break;
+      }
+    }
+    cudaDeviceCode = isGlobal || (isDevice && !isHost);
+  }
+
   try {
     PushGuard<FunctionDecl*> pg(CompilerGlobals::astContextLists.enclosingFunctionDecls, D);
     PragmaActivateGuard pag(D, this, D->isThisDeclarationADefinition());
-    if (!pag.skipVisit() && D->getBody()){
+    if (cudaDeviceCode){
+      if (D->getBody() && !isInSystemHeader(getStart(D))){
+        ::replace(D->getBody(), "{}");
+      }
+    } else if (!pag.skipVisit() && D->getBody()){
       traverseFunctionBody(D->getBody());
     }
   } catch (StmtDeleteException& e) {

@@ -254,11 +254,17 @@ class TestHgcompileCuda(unittest.TestCase):
       hc.addPreprocess(ctx, "vec.cu", "pp.vec.cu", args, [],
                        use_clang_cpp_for_e=False)
 
-  def test_host_obj_cmd_x_cxx_before_dash_c(self):
+  def test_host_obj_cmd_cuda_host_only_for_cu(self):
+    # The rewritten sst.pp.*.cu compiles in CUDA host-only mode (not -x c++):
+    # CUDA-mode preprocessing baked in cuda_wrappers shims that only recompile
+    # in CUDA mode. The rewriter lowers every <<< and strips device bodies.
     ctx, args, plan = _cuda_test_plan("vec.cu")
     cmd = hc._build_host_obj_cmd(ctx, args, plan, "sst.pp.vec.cu", "tmp.o")
-    i = cmd.index("-x")
-    self.assertEqual(cmd[i:i + 4], ["-x", "c++", "-c", "sst.pp.vec.cu"])
+    self.assertIn("--cuda-host-only", cmd)
+    self.assertEqual(cmd[cmd.index("-x") + 1], "cuda")
+    self.assertNotIn("c++", cmd)
+    # -x cuda must precede the source file so it applies to it
+    self.assertLess(cmd.index("-x"), cmd.index("sst.pp.vec.cu"))
     ctx, args, plan = _cuda_test_plan("vec.cc")
     cmd = hc._build_host_obj_cmd(ctx, args, plan, "sst.pp.vec.cc", "tmp.o")
     self.assertNotIn("-x", cmd)

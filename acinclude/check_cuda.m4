@@ -63,4 +63,6 @@ _HGCC_CUDA_PROBE_EOF
   else
     AC_SUBST([HAVE_CUDA_SUPPORT], [False])
   fi
+  dnl Makefile gate for the CUDA integration test (tests/Makefile.am).
+  AM_CONDITIONAL([HAVE_CUDA_SUPPORT], [test "X$have_cuda_support" = "Xyes"])
 ])

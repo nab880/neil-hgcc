@@ -459,6 +459,13 @@ def run(typ, extraLibs=""):
     args.I.insert(0, tempReplacementsDir)
     args.I.insert(1, os.path.join(prefix, "include"))
 
+    # CUDA replacements live in a cuda/ subdir of the temp dir, but user code
+    # includes them flat (<cuda_runtime.h>), so put that subdir on the include
+    # path directly -- like pointing -I at a real CUDA toolkit's include dir.
+    # args.I feeds preprocess, ssthg_clang (via base_argv) and host -c alike.
+    if ctx.cudaMode:
+      args.I.insert(0, os.path.join(tempReplacementsDir, "cuda"))
+
   # Inject MPI include path after the replacement temp dir so MV2's mpi.h is
   # preferred over any older header layering, but replacement headers still win.
   if ctx.mpi_impl and not ctx.is_conftest:

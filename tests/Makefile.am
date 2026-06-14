@@ -61,16 +61,15 @@ $(TESTS_EXT_LIB): tests/test_tls.o $(top_builddir)/hg++
 	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
 	    $(top_builddir)/hg++ tests/test_tls.o -o $@
 
-# The CUDA launch -> sst_hg_cuda_launch rewrite is gated on skeletonize mode
-# (ssthg_clang reads SST_HG_SKELETONIZE), so this object must be built with it
-# set -- unlike the plain C++ test_tls. Resolves the ABI from libhg at load.
+# Built like plain C++ (default ENCAPSULATE mode, no SST_HG_SKELETONIZE): the
+# CUDA launch -> sst_hg_cuda_launch rewrite and device-body strip now fire in
+# every mode. Resolves the ABI from libhg at load.
 tests/test_cuda_vecadd.o: $(srcdir)/tests/test_cuda_vecadd.cu \
                           $(top_builddir)/ssthg_clang \
                           $(top_builddir)/hg++
 	@$(MKDIR_P) tests
 	PYTHONPATH=$(top_builddir):$(top_srcdir)$${PYTHONPATH:+:$${PYTHONPATH}} \
 	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
-	SST_HG_SKELETONIZE=1 \
 	    $(top_builddir)/hg++ -c $(srcdir)/tests/test_cuda_vecadd.cu -o $@
 
 tests/libtest_cuda_vecadd.so: tests/test_cuda_vecadd.o $(top_builddir)/hg++

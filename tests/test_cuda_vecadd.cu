@@ -23,8 +23,7 @@ int main(int /*argc*/, char** /*argv*/) {
   const size_t bytes = n * sizeof(float);
 
   // Stack host buffers: the "model don't execute" memcpy ignores the host
-  // contents (it only charges modeled time), and skeletonize mode rewrites
-  // heap malloc/free, so we avoid the heap here.
+  // contents (it only charges modeled time), so there is nothing to allocate.
   float ha[n];
   float hc[n];
 

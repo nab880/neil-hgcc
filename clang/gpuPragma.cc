@@ -79,5 +79,10 @@ const GpuComputeCost* SSTGpuComputePragma::costForStmt(const Stmt* s)
   return it == g_stmtCosts.end() ? nullptr : &it->second;
 }
 
+// Active in every mode: the launch rewrite (TraverseCUDAKernelCallExpr) reads
+// these costs in any CUDA build, including the default ENCAPSULATE mode, so the
+// pragma must record them there too -- not only under skeletonize.
 static PragmaRegister<SSTArgMapPragmaShim, SSTGpuComputePragma, true>
-    gpuComputePragma("sst", "gpu_compute", modes::SKELETONIZE);
+    gpuComputePragma("sst", "gpu_compute",
+                     modes::ENCAPSULATE | modes::MEMOIZE | modes::SKELETONIZE
+                     | modes::SHADOWIZE | modes::PUPPETIZE);

@@ -1275,9 +1275,12 @@ SkeletonASTVisitor::TraverseCUDAKernelCallExpr(CUDAKernelCallExpr* expr,
   try {
     PragmaActivateGuard pag(expr, this);
     if (pag.skipVisit()) return true; //e.g. #pragma sst delete on the launch
-    if (CompilerGlobals::modeActive(SKELETONIZE | SHADOWIZE)){
-      rewriteCudaLaunch(expr);
-    }
+    // Lower the launch in every mode, matching the device-body strip in
+    // TraverseFunctionDecl (which is likewise gated on CUDA only). A plain
+    // build runs in ENCAPSULATE mode, so a mode-restricted gate would silently
+    // leave <<<>>> unlowered -- the kernel would link against the host launch
+    // stub instead of the sst_hg_cuda ABI, unmodeled and with no diagnostic.
+    rewriteCudaLaunch(expr);
   } catch (StmtDeleteException& e) {
     if (e.deleted != expr) throw e;
   }

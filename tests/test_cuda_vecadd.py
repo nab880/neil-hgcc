@@ -11,7 +11,7 @@
 # information, see the LICENSE file in the top level directory of the
 # distribution.
 
-import sst
+import sst, os
 from sst.merlin.base import *
 from sst.merlin.endpoint import *
 from sst.merlin.interface import *
@@ -24,19 +24,21 @@ if __name__ == "__main__":
     PlatformDefinition.setCurrentPlatform("platform_hg_test")
     platform = PlatformDefinition.getCurrentPlatform()
 
-    platform.addParamSet("operating_system", {
+    # The roofline knobs and the optional calibration table are swept from the
+    # environment by run_test_cuda_vecadd.sh; defaults give the plain run.
+    params = {
         "app1.name" : "test_cuda_vecadd",
         "app1.exe_library_name"  : "test_cuda_vecadd",
-        # The GPU stub library (P2 Track 3) is an optional capability declared
-        # per-app, exactly like ComputeLibrary / mask_mpi. Without it the first
-        # sst_hg_cuda_* call aborts with "Library GpuLibrary not found".
+        # The GPU library is an optional capability declared per-app, like
+        # ComputeLibrary / mask_mpi. Without it the first sst_hg_cuda_* call
+        # aborts with "Library GpuLibrary not found".
         "app1.libraries" : ["gpulibrary:GpuLibrary",
                             "computelibrary:ComputeLibrary",],
-        # Fixed modeled kernel time; total_gpu_time scales with this.
-        "app1.gpu_kernel_time" : "20us",
-        "app1.gpu_memcpy_time" : "5us",
-        "app1.gpu_kernel_launch_overhead" : "1us",
-    })
+        "app1.gpu_mem_bandwidth" : os.environ.get("GPU_MEM_BANDWIDTH", "900GB/s"),
+    }
+    if os.environ.get("GPU_KERNEL_TIMES"):
+        params["app1.gpu_kernel_times"] = os.environ["GPU_KERNEL_TIMES"]
+    platform.addParamSet("operating_system", params)
 
     topo = topoSingle()
     topo.num_ports = 32

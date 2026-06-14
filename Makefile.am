@@ -121,6 +121,7 @@ install-data-local:
 	$(MKDIR_P) $(DESTDIR)$(includedir)/hgcc/libraries/pthread
 	cp $(srcdir)/hgcc_include/libraries/pthread/hgcc_pthread_spinlock.h $(DESTDIR)$(includedir)/hgcc/libraries/pthread/
 	cp $(srcdir)/hgcc_include/libraries/hg_cuda.h $(DESTDIR)$(includedir)/hgcc/libraries/
+	cp $(srcdir)/hgcc_include/libraries/sst_hg_cuda_calibrate.h $(DESTDIR)$(includedir)/hgcc/libraries/
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/sys
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/linux
@@ -188,6 +189,7 @@ install-data-local:
 	$(MKDIR_P) $(DESTDIR)$(includedir)/hgcc/libraries/pthread
 	cp $(srcdir)/hgcc_include/libraries/pthread/hgcc_pthread_spinlock.h $(DESTDIR)$(includedir)/hgcc/libraries/pthread/
 	cp $(srcdir)/hgcc_include/libraries/hg_cuda.h $(DESTDIR)$(includedir)/hgcc/libraries/
+	cp $(srcdir)/hgcc_include/libraries/sst_hg_cuda_calibrate.h $(DESTDIR)$(includedir)/hgcc/libraries/
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/sys
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/linux

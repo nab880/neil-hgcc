@@ -43,8 +43,20 @@ roofline. The format is specified by
 [`../../docs/gpu_calibration.schema.json`](../../docs/gpu_calibration.schema.json).
 
 To calibrate your own kernel, find its mangled name in the rewritten
-`sst.pp.halo.cu` (the `sst_hg_cuda_launch("<name>", ...)` call), measure it at a
-few problem sizes on real hardware, and list the samples here.
+`sst.pp.halo.cu` (the `sst_hg_cuda_launch("<name>", ...)` call), then measure it
+on real hardware: compile the unmodified `.cu` with your own `nvcc`, `-include`
+[`sst_hg_cuda_calibrate.h`](../../hgcc_include/libraries/sst_hg_cuda_calibrate.h),
+and wrap each launch in a scope —
+
+```cuda
+{ SST_HG_CALIBRATE("_Z7stencilPfi", (uint64_t)b * t);
+  stencil<<<b, t, 0, compute>>>(u, n); }
+```
+
+Running that build emits a `gpu_kernel_times.json` in exactly this format
+(averaging repeated launches per thread count); drop it in as
+`gpu_calibration.json`. The table here is an illustrative sample, not a
+measurement.
 
 ## The questions this answers
 

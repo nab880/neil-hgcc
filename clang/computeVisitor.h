@@ -65,6 +65,16 @@ class ComputeVisitor  {
 
   void addOperations(clang::Stmt* stmt, Loop::Body& body, bool isLHS = false);
 
+  // Emit the runtime cost accumulation (declares + sums flops/intops/readBytes/
+  // writeBytes over the loop tree), without the sst_hg_compute_detailed call.
+  void emitCostAccumulation(std::ostream& os, Loop& loop);
+
+  // Analyze a function/kernel body and return the accumulation block (the
+  // statements that compute the four per-thread cost variables). Used by the
+  // CUDA launch rewrite to derive costs when no #pragma sst gpu_compute is given.
+  // Returns false if there is nothing to analyze.
+  bool deriveKernelCost(clang::Stmt* body, std::string& accumOut);
+
  private:
   struct Variable {
     uint16_t id;

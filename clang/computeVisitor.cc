@@ -665,11 +665,37 @@ ComputeVisitor::setContext(Stmt* stmt){
 }
 
 void
+ComputeVisitor::emitCostAccumulation(std::ostream& os, Loop& loop)
+{
+  // Declare the four cost accumulators and emit the runtime statements that
+  // sum them over the (possibly nested) loop tree. Factored out of replaceStmt
+  // so callers other than #pragma sst compute (e.g. the CUDA launch rewrite,
+  // which needs per-thread F/I/R/W) can reuse the accumulation without the
+  // sst_hg_compute_detailed call.
+  os << "uint64_t flops=0; uint64_t readBytes=0; uint64_t writeBytes=0; uint64_t intops=0; ";
+  addLoopContribution(os, loop);
+}
+
+bool
+ComputeVisitor::deriveKernelCost(Stmt* body, std::string& accumOut)
+{
+  if (!body) return false;
+  Loop loop(0); //treat the body as a loop of size 1
+  loop.tripCount = "1";
+  setContext(body);
+  addOperations(body, loop.body);
+  std::stringstream os;
+  emitCostAccumulation(os, loop);
+  accumOut = os.str();
+  return true;
+}
+
+void
 ComputeVisitor::replaceStmt(Stmt* stmt, Loop& loop, const std::string& nthread)
 {
   std::stringstream sstr;
-  sstr << "{ uint64_t flops=0; uint64_t readBytes=0; uint64_t writeBytes=0; uint64_t intops=0; ";
-  addLoopContribution(sstr, loop);
+  sstr << "{ ";
+  emitCostAccumulation(sstr, loop);
   auto iter = CompilerGlobals::astNodeMetadata.computeMemoryOverrides.find(stmt);
   if (iter != CompilerGlobals::astNodeMetadata.computeMemoryOverrides.end()){
     sstr << "readBytes=" << iter->second << ";";

@@ -83,6 +83,14 @@ class ComputeVisitor  {
 
   uint32_t idCount; //0 is sentinel for not inited
   uint32_t currentGeneration; //0 is sentinel for not inited
+  // Set while deriving a per-thread CUDA kernel cost (deriveKernelCost): an
+  // unhinted if is assumed TAKEN (conservative upper bound for bounds-check
+  // guards), and loops are short-circuited -- they would trip scope validation
+  // on the CUDA builtins and their bounds may reference locals not bound at the
+  // launch site -- recording sawLoop_ so the caller falls back to zero+warn.
+  // Default false preserves #pragma sst compute behavior.
+  bool derivingKernelCost_ = false;
+  bool sawLoop_ = false;
   std::map<MemoryLocation,AccessHistory,MemoryLocationCompare> arrays;
   std::map<clang::NamedDecl*,Variable> variables;
   clang::SourceLocation scopeStartLine;

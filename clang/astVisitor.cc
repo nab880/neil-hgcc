@@ -46,6 +46,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #include "replacePragma.h"
 #include "computePragma.h"
 #include "gpuPragma.h"
+#include "computeVisitor.h"
 #include "clang/AST/Mangle.h"
 #include  <sys/time.h>
 #include <iostream>
@@ -1230,37 +1231,90 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
   std::string shmemStr = cfgArg(2, "0");
   std::string streamStr = cfgArg(3, "0");
 
-  // Costs: a pragma on the launch statement wins over one on the kernel decl;
-  // absent either, model zero GPU work and warn once.
+  int id = cudaLaunchCounter_++;
+
+  // Per-thread costs. Precedence: a #pragma sst gpu_compute on the launch stmt >
+  // one on the kernel decl > costs derived from the kernel body > zero+warn.
+  // Pragma costs are scalar expressions; derived costs are a runtime accumulation
+  // block that computes flops/intops/readBytes/writeBytes (ComputeVisitor).
   const GpuComputeCost* cost = SSTGpuComputePragma::costForStmt(expr);
   if (!cost) cost = SSTGpuComputePragma::costForDecl(kernel);
-  std::string F = cost ? cost->flops : "0";
-  std::string I = cost ? cost->intops : "0";
-  std::string R = cost ? cost->bytesRead : "0";
-  std::string W = cost ? cost->bytesWritten : "0";
-  if (!cost){
-    warn(getStart(expr), "CUDA kernel launch has no #pragma sst gpu_compute "
-                         "costs; modeling it with zero GPU work");
-  }
 
-  int id = cudaLaunchCounter_++;
-  std::stringstream os;
-  // GNU statement-expression: bind the configs to dim3 temporaries (normalizing
-  // the int/dim3/var forms via the 1-filling ctor) and preserve any
-  // side-effecting launch arguments, since the kernel itself is not executed.
-  os << "({ dim3 __sst_g_" << id << " = (" << gridStr << "); "
-     << "dim3 __sst_b_" << id << " = (" << blockStr << "); ";
-  for (unsigned i = 0; i < expr->getNumArgs(); ++i){
-    Expr* arg = expr->getArg(i);
-    if (!isSideEffectFreeLaunchArg(arg)){
-      os << "(void)(" << printWithGlobalsReplaced(arg) << "); ";
+  std::string derivedAccum;
+  bool haveDerived = false;
+  if (!cost){
+    ComputeVisitor cv;
+    if (kernel->getBody() && cv.deriveKernelCost(kernel->getBody(), derivedAccum)){
+      haveDerived = true;
+    } else {
+      warn(getStart(expr), "CUDA kernel launch has no #pragma sst gpu_compute and "
+                           "its cost could not be derived; modeling zero GPU work");
     }
   }
+
+  std::stringstream os;
+  // GNU statement-expression: bind the configs to dim3 temporaries (normalizing
+  // the int/dim3/var forms via the 1-filling ctor).
+  os << "({ dim3 __sst_g_" << id << " = (" << gridStr << "); "
+     << "dim3 __sst_b_" << id << " = (" << blockStr << "); ";
+
+  std::string costArgs;
+  if (haveDerived){
+    // Bind the device builtins and each kernel parameter as same-named locals so
+    // the derived accumulation resolves at the host call site. threadIdx/blockIdx
+    // are pinned to 0 -- thread 0 does the most grid-stride iterations, so the
+    // per-thread cost is a conservative upper bound. Binding each parameter also
+    // evaluates its launch argument exactly once (preserving side effects), so
+    // the separate (void)(arg) is not emitted here.
+    os << "dim3 gridDim = __sst_g_" << id << ", blockDim = __sst_b_" << id << "; "
+       << "dim3 threadIdx(0,0,0), blockIdx(0,0,0); ";
+    // Capture each launch argument into a unique temp first (its expression
+    // resolves in the host scope, evaluated exactly once), then alias the temp
+    // to the kernel parameter's name. The two steps avoid a self-reference when
+    // an argument names a host variable matching the parameter (param `n` passed
+    // a host `n` would otherwise emit the illegal `auto n = (n)`).
+    for (unsigned i = 0; i < expr->getNumArgs(); ++i){
+      os << "auto __sst_arg" << id << "_" << i << " = ("
+         << printWithGlobalsReplaced(expr->getArg(i)) << "); ";
+    }
+    for (unsigned i = 0; i < expr->getNumArgs(); ++i){
+      std::string pname;
+      if (i < kernel->getNumParams()) pname = kernel->getParamDecl(i)->getNameAsString();
+      if (!pname.empty()){
+        os << "auto " << pname << " = __sst_arg" << id << "_" << i
+           << "; (void)" << pname << "; ";
+      } else {
+        os << "(void)__sst_arg" << id << "_" << i << "; ";
+      }
+    }
+    if (derivedAccum.find("threadIdx") != std::string::npos ||
+        derivedAccum.find("blockIdx") != std::string::npos){
+      warn(getStart(expr), "derived CUDA kernel cost depends on threadIdx/blockIdx; "
+                           "pinned to 0 (conservative upper bound on per-thread work)");
+    }
+    os << derivedAccum;
+    costArgs = "flops, intops, readBytes, writeBytes";
+  } else {
+    // Pragma or zero: preserve side-effecting launch args, since the kernel is
+    // not executed.
+    for (unsigned i = 0; i < expr->getNumArgs(); ++i){
+      Expr* arg = expr->getArg(i);
+      if (!isSideEffectFreeLaunchArg(arg)){
+        os << "(void)(" << printWithGlobalsReplaced(arg) << "); ";
+      }
+    }
+    std::string F = cost ? cost->flops : "0";
+    std::string I = cost ? cost->intops : "0";
+    std::string R = cost ? cost->bytesRead : "0";
+    std::string W = cost ? cost->bytesWritten : "0";
+    costArgs = F + ", " + I + ", " + R + ", " + W;
+  }
+
   os << "sst_hg_cuda_launch(\"" << kernelName << "\", "
      << "__sst_g_" << id << ".x, __sst_g_" << id << ".y, __sst_g_" << id << ".z, "
      << "__sst_b_" << id << ".x, __sst_b_" << id << ".y, __sst_b_" << id << ".z, "
      << "(" << shmemStr << "), (void*)(" << streamStr << "), "
-     << F << ", " << I << ", " << R << ", " << W << "); })";
+     << costArgs << "); })";
 
   ::replace(expr, os.str());
 }

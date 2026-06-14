@@ -168,6 +168,7 @@ ComputeVisitor::visitLoop(ForStmt* stmt, Loop& loop)
 void
 ComputeVisitor::visitBodyForStmt(ForStmt* stmt, Loop::Body& body)
 {
+  if (derivingKernelCost_){ sawLoop_ = true; return; } //caller falls back to 0+warn
   body.subLoops.emplace_back(body.depth+1);
   visitLoop(stmt, body.subLoops.back());
 }
@@ -175,6 +176,7 @@ ComputeVisitor::visitBodyForStmt(ForStmt* stmt, Loop::Body& body)
 void
 ComputeVisitor::visitBodyWhileStmt(WhileStmt *stmt, Loop::Body &body)
 {
+  if (derivingKernelCost_){ sawLoop_ = true; return; } //caller falls back to 0+warn
   errorAbort(stmt, "skeletonized while loop has unknown count - use pragma sst loop_count");
 }
 
@@ -375,9 +377,15 @@ ComputeVisitor::visitBodyIfStmt(IfStmt *stmt, Loop::Body &body)
 {
   auto iter = CompilerGlobals::astNodeMetadata.predicatedBlocks.find(stmt);
   if (iter == CompilerGlobals::astNodeMetadata.predicatedBlocks.end()){
-    warn(stmt, "if-stmt inside compute block has no prediction hint - assuming always false");
-    if (stmt->getElse()){
-      addOperations(stmt->getElse(), body);
+    if (derivingKernelCost_){
+      // Deriving a per-thread kernel cost: count the then-branch (the guarded
+      // work) as a conservative upper bound, rather than assuming not taken.
+      addOperations(stmt->getThen(), body);
+    } else {
+      warn(stmt, "if-stmt inside compute block has no prediction hint - assuming always false");
+      if (stmt->getElse()){
+        addOperations(stmt->getElse(), body);
+      }
     }
   } else {
     std::string predicate = iter->second;
@@ -682,8 +690,15 @@ ComputeVisitor::deriveKernelCost(Stmt* body, std::string& accumOut)
   if (!body) return false;
   Loop loop(0); //treat the body as a loop of size 1
   loop.tripCount = "1";
+  derivingKernelCost_ = true; //assume guards taken; short-circuit loops
+  sawLoop_ = false;
   setContext(body);
   addOperations(body, loop.body);
+  // Loop bounds may reference kernel-local variables that are not bound at the
+  // launch site (and trip scope validation on the builtins), so fall back to the
+  // zero+warn path for any kernel with a loop -- straight-line kernels (the
+  // common vecadd/stencil shape) derive cleanly.
+  if (sawLoop_) return false;
   std::stringstream os;
   emitCostAccumulation(os, loop);
   accumOut = os.str();

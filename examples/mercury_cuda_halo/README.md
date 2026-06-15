@@ -42,6 +42,18 @@ them, overriding the roofline. Delete (or rename) the JSON to fall back to the
 roofline. The format is specified by
 [`../../docs/gpu_calibration.schema.json`](../../docs/gpu_calibration.schema.json).
 
+**Roofline accuracy.** With `gpu_mem_bandwidth` set to the rate the calibration
+achieved (~900 GB/s here), the uncalibrated and calibrated runs agree to within
+the per-launch kernel-launch overhead — about **3.5%** over this 20-step halo. At
+the shipped 1500 GB/s *peak* the roofline runs **~36% faster**; that gap is the
+achieved-vs-peak memory efficiency a real kernel never reaches, which is exactly
+what the table supplies. So the roofline is a sound lower bound that tracks
+calibration once you feed it the achieved bandwidth — calibrate when you also need
+the efficiency factor. The P4 auto-derived costs (used when no `#pragma sst
+gpu_compute` is present) feed the same roofline; on a pure-streaming kernel they
+recover the exact DRAM traffic, matching a same-bandwidth calibration to within
+that launch overhead.
+
 To calibrate your own kernel, find its mangled name in the rewritten
 `sst.pp.halo.cu` (the `sst_hg_cuda_launch("<name>", ...)` call), then measure it
 on real hardware: compile the unmodified `.cu` with your own `nvcc`, `-include`

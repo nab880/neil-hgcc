@@ -17,12 +17,14 @@ CUDA_TEST_EXT_LIBS = tests/libtest_cuda_vecadd.so \
                      tests/libtest_cuda_streams.so \
                      tests/libtest_cuda_mpi_halo.so \
                      tests/libmercury_llm_train.so \
-                     tests/libmercury_megatron.so
+                     tests/libmercury_megatron.so \
+                     tests/libmercury_3d.so
 CUDA_TEST_RUNNERS  = $(srcdir)/tests/run_test_cuda_vecadd.sh \
                      $(srcdir)/tests/run_test_cuda_streams.sh \
                      $(srcdir)/tests/run_test_cuda_mpi_halo.sh \
                      $(srcdir)/tests/run_test_cuda_llm_train.sh \
-                     $(srcdir)/tests/run_test_cuda_megatron.sh
+                     $(srcdir)/tests/run_test_cuda_megatron.sh \
+                     $(srcdir)/tests/run_test_cuda_3d.sh
 endif
 
 check-local: $(TESTS_EXT_LIB) $(CUDA_TEST_EXT_LIBS) lit-tests
@@ -138,6 +140,20 @@ tests/libmercury_megatron.so: tests/megatron.o $(top_builddir)/hg++
 	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
 	    $(top_builddir)/hg++ tests/megatron.o -o $@
 
+# The 3D-parallel (DP x PP x TP) smoke test, likewise built from the example
+# source (the run script drives examples/mercury_3d/parallel3d.py).
+tests/parallel3d.o: $(srcdir)/examples/mercury_3d/parallel3d.cu \
+                    $(top_builddir)/ssthg_clang $(top_builddir)/hg++
+	@$(MKDIR_P) tests
+	PYTHONPATH=$(top_builddir):$(top_srcdir)$${PYTHONPATH:+:$${PYTHONPATH}} \
+	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
+	    $(top_builddir)/hg++ -c $(srcdir)/examples/mercury_3d/parallel3d.cu -o $@
+
+tests/libmercury_3d.so: tests/parallel3d.o $(top_builddir)/hg++
+	PYTHONPATH=$(top_builddir):$(top_srcdir)$${PYTHONPATH:+:$${PYTHONPATH}} \
+	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
+	    $(top_builddir)/hg++ tests/parallel3d.o -o $@
+
 install-exec-local: $(TESTS_EXT_LIB) $(CUDA_TEST_EXT_LIBS)
 	$(MKDIR_P) $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)
 	$(INSTALL_DATA) -m 755 $(TESTS_EXT_LIB) \
@@ -154,21 +170,26 @@ uninstall-local:
 	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libtest_cuda_mpi_halo.so
 	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libmercury_llm_train.so
 	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libmercury_megatron.so
+	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libmercury_3d.so
 
 CLEANFILES   = tests/test_tls.o $(TESTS_EXT_LIB) $(LIT_JUNIT) tests/out.log \
                tests/test_cuda_vecadd.o tests/test_cuda_streams.o tests/test_cuda_mpi_halo.o \
                tests/libtest_cuda_vecadd.so tests/libtest_cuda_streams.so tests/libtest_cuda_mpi_halo.so \
                tests/llm_train.o tests/libmercury_llm_train.so \
                tests/megatron.o tests/libmercury_megatron.so \
+               tests/parallel3d.o tests/libmercury_3d.so \
                tests/out_cuda.log tests/out_bw_hi.log tests/out_bw_lo.log tests/out_cal.log \
                tests/out_streams.log tests/out_halo_off.log tests/out_halo_on.log \
                tests/out_llm_slow_ov.log tests/out_llm_slow_noov.log \
                tests/out_llm_fast_gd.log tests/out_llm_fast_nogd.log \
                tests/out_mega_pp_m1.log tests/out_mega_pp_m4.log \
-               tests/out_mega_tp_slow.log tests/out_mega_tp_fast.log
+               tests/out_mega_tp_slow.log tests/out_mega_tp_fast.log \
+               tests/out_3d_full.log tests/out_3d_pp.log tests/out_3d_tp.log \
+               tests/out_3d_dp_slow.log tests/out_3d_dp_fast.log
 EXTRA_DIST  += tests/test_tls.cc tests/test_tls.py tests/run_test_tls.sh tests/lit-tests \
                tests/test_cuda_vecadd.cu tests/test_cuda_vecadd.py tests/run_test_cuda_vecadd.sh \
                tests/test_cuda_streams.cu tests/test_cuda_streams.py tests/run_test_cuda_streams.sh \
                tests/test_cuda_mpi_halo.cu tests/test_cuda_mpi_halo.py tests/run_test_cuda_mpi_halo.sh \
                tests/run_test_cuda_llm_train.sh tests/run_test_cuda_megatron.sh \
+               tests/run_test_cuda_3d.sh \
                tests/cuda_calibration.json

@@ -15,10 +15,12 @@ TEST_TLS_RUNNER = $(srcdir)/tests/run_test_tls.sh
 if HAVE_CUDA_SUPPORT
 CUDA_TEST_EXT_LIBS = tests/libtest_cuda_vecadd.so \
                      tests/libtest_cuda_streams.so \
-                     tests/libtest_cuda_mpi_halo.so
+                     tests/libtest_cuda_mpi_halo.so \
+                     tests/libmercury_llm_train.so
 CUDA_TEST_RUNNERS  = $(srcdir)/tests/run_test_cuda_vecadd.sh \
                      $(srcdir)/tests/run_test_cuda_streams.sh \
-                     $(srcdir)/tests/run_test_cuda_mpi_halo.sh
+                     $(srcdir)/tests/run_test_cuda_mpi_halo.sh \
+                     $(srcdir)/tests/run_test_cuda_llm_train.sh
 endif
 
 check-local: $(TESTS_EXT_LIB) $(CUDA_TEST_EXT_LIBS) lit-tests
@@ -105,6 +107,21 @@ tests/libtest_cuda_mpi_halo.so: tests/test_cuda_mpi_halo.o $(top_builddir)/hg++
 	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
 	    $(top_builddir)/hg++ tests/test_cuda_mpi_halo.o -o $@
 
+# The data-parallel LLM training smoke test builds the actual demo skeleton from
+# examples/ (the run script drives examples/mercury_llm_train/train.py). The lib
+# name must match the app name (ssthg_app_name mercury_llm_train).
+tests/llm_train.o: $(srcdir)/examples/mercury_llm_train/train.cu \
+                   $(top_builddir)/ssthg_clang $(top_builddir)/hg++
+	@$(MKDIR_P) tests
+	PYTHONPATH=$(top_builddir):$(top_srcdir)$${PYTHONPATH:+:$${PYTHONPATH}} \
+	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
+	    $(top_builddir)/hg++ -c $(srcdir)/examples/mercury_llm_train/train.cu -o $@
+
+tests/libmercury_llm_train.so: tests/llm_train.o $(top_builddir)/hg++
+	PYTHONPATH=$(top_builddir):$(top_srcdir)$${PYTHONPATH:+:$${PYTHONPATH}} \
+	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
+	    $(top_builddir)/hg++ tests/llm_train.o -o $@
+
 install-exec-local: $(TESTS_EXT_LIB) $(CUDA_TEST_EXT_LIBS)
 	$(MKDIR_P) $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)
 	$(INSTALL_DATA) -m 755 $(TESTS_EXT_LIB) \
@@ -119,14 +136,19 @@ uninstall-local:
 	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libtest_cuda_vecadd.so
 	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libtest_cuda_streams.so
 	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libtest_cuda_mpi_halo.so
+	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libmercury_llm_train.so
 
 CLEANFILES   = tests/test_tls.o $(TESTS_EXT_LIB) $(LIT_JUNIT) tests/out.log \
                tests/test_cuda_vecadd.o tests/test_cuda_streams.o tests/test_cuda_mpi_halo.o \
                tests/libtest_cuda_vecadd.so tests/libtest_cuda_streams.so tests/libtest_cuda_mpi_halo.so \
+               tests/llm_train.o tests/libmercury_llm_train.so \
                tests/out_cuda.log tests/out_bw_hi.log tests/out_bw_lo.log tests/out_cal.log \
-               tests/out_streams.log tests/out_halo_off.log tests/out_halo_on.log
+               tests/out_streams.log tests/out_halo_off.log tests/out_halo_on.log \
+               tests/out_llm_slow_ov.log tests/out_llm_slow_noov.log \
+               tests/out_llm_fast_gd.log tests/out_llm_fast_nogd.log
 EXTRA_DIST  += tests/test_tls.cc tests/test_tls.py tests/run_test_tls.sh tests/lit-tests \
                tests/test_cuda_vecadd.cu tests/test_cuda_vecadd.py tests/run_test_cuda_vecadd.sh \
                tests/test_cuda_streams.cu tests/test_cuda_streams.py tests/run_test_cuda_streams.sh \
                tests/test_cuda_mpi_halo.cu tests/test_cuda_mpi_halo.py tests/run_test_cuda_mpi_halo.sh \
+               tests/run_test_cuda_llm_train.sh \
                tests/cuda_calibration.json

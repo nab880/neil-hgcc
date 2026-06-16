@@ -114,6 +114,13 @@ int main(int argc, char** argv) {
   const bool gpu_direct = !gd || gd[0] == 't' || gd[0] == '1';
   const char* ov = getenv("LLM_OVERLAP");
   const bool overlap = !ov || ov[0] == '1' || ov[0] == 't';
+  // LAYERS overrides the transformer depth (default L). A lighter per-step
+  // "timing skeleton" for scaling sweeps: fewer layers = fewer collectives, same
+  // communication pattern, so large-NRANKS runs cost proportionally less
+  // wall-clock without changing what is being studied.
+  int layers = getenv("LAYERS") ? atoi(getenv("LAYERS")) : L;
+  if (layers < 1) layers = 1;
+  if (layers > 64) layers = 64;
 
   float* d = nullptr;
   cudaMalloc((void**)&d, (size_t)T * H * sizeof(float));   // single scratch cookie
@@ -124,13 +131,13 @@ int main(int argc, char** argv) {
   const size_t grad_bytes = (size_t)GRAD_ELEMS * sizeof(float);
 
   // Forward: all layers on the compute stream.
-  for (int l = 0; l < L; ++l) forward_layer(d, compute);
+  for (int l = 0; l < layers; ++l) forward_layer(d, compute);
 
   // Backward (reverse), with each layer's gradient all-reduce overlapping the
   // backward compute of the layers still to come.
-  MPI_Request reqs[L];
+  MPI_Request reqs[64];
   int nreq = 0;
-  for (int l = L - 1; l >= 0; --l) {
+  for (int l = layers - 1; l >= 0; --l) {
     backward_layer(d, compute);
     if (size == 1) continue;            // single GPU: no data-parallel sync
     if (overlap) {
@@ -157,7 +164,7 @@ int main(int argc, char** argv) {
   cudaFree(d);
   if (rank == 0)
     std::printf("mercury_llm_train: %d ranks, gpu_direct=%d, overlap=%d, %d layers done\n",
-                size, (int)gpu_direct, (int)overlap, L);
+                size, (int)gpu_direct, (int)overlap, layers);
   MPI_Finalize();
   return 0;
 }

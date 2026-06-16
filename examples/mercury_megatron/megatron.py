@@ -54,8 +54,8 @@ if __name__ == "__main__":
     platform.addParamSet("router", {"link_bw": link_bw, "xbar_bw": link_bw})
     platform.addParamSet("node", {"channel_bandwidth": link_bw, "num_channels": "1"})
 
-    topo = topoSingle()
-    topo.num_ports = 32
+    from scale_topo import make_topology
+    topo = make_topology(nranks)   # TOPO=single (default) | TOPO=fattree (scales past 32)
 
     ep = HgJob(0, nranks)
 

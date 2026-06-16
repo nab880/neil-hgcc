@@ -83,7 +83,11 @@ int main(int argc, char** argv) {
   const int tp_rank = rank % tp_size;
   const int pp_rank = (rank / tp_size) % pp_size;
   const int dp_rank = rank / (tp_size * pp_size);
-  const int layers_here = (L + pp_size - 1) / pp_size;
+  // LAYERS overrides model depth (default L) -- a timing skeleton for scaling
+  // sweeps: fewer layers = less per-step work, same comms pattern.
+  int nlayers = getenv("LAYERS") ? atoi(getenv("LAYERS")) : L;
+  if (nlayers < 1) nlayers = 1;
+  const int layers_here = (nlayers + pp_size - 1) / pp_size;
 
   // MICROBATCH is the GLOBAL microbatch count -- the work held fixed across the
   // sweep so every DP x PP x TP factorization processes the same batch (the

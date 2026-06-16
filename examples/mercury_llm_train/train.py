@@ -34,6 +34,12 @@ if __name__ == "__main__":
     # are read by the skeleton itself from the environment; run.sh sweeps them.
     nranks = int(os.environ.get("NRANKS", "4"))
 
+    # GPU model knobs default to an A100-class node (fp16 tensor peak, HBM2e) but
+    # are overridable from the environment for a sensitivity study of how the
+    # compute-bound step-time floor moves with the modeled hardware assumptions.
+    gpu_flops = os.environ.get("GPU_PEAK_FLOPS", "3.0e14")
+    gpu_bw    = os.environ.get("GPU_MEM_BW", "2000GB/s")
+
     params = {
         "app1.name": "mercury_llm_train",
         "app1.exe_library_name": "mercury_llm_train",
@@ -41,9 +47,8 @@ if __name__ == "__main__":
         "app1.libraries": ["gpulibrary:GpuLibrary",
                             "computelibrary:ComputeLibrary",
                             "mask_mpi:MpiApi", ],
-        # GPU model knobs -- an A100-class node (fp16 tensor peak, HBM2e).
-        "app1.gpu_peak_flops":    "3.0e14",
-        "app1.gpu_mem_bandwidth": "2000GB/s",
+        "app1.gpu_peak_flops":    gpu_flops,
+        "app1.gpu_mem_bandwidth": gpu_bw,
         "app1.pcie_bandwidth":    "32GB/s",
         "app1.pcie_latency":      "1us",
         "app1.gpu_kernel_launch_overhead": "2us",

@@ -54,6 +54,9 @@ clang/.dirstamp
 clang/*.o
 examples/**/*.o
 examples/**/*.so
+# sweep/scratch result dumps (e.g. .ad_results.txt, .skew_results.txt, .sweep_opt.*)
+examples/**/.*results.txt
+examples/**/.sweep_opt.*
 
 # Tests
 tests/__pycache__/

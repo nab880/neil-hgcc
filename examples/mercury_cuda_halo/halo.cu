@@ -1,11 +1,4 @@
-// Example: a GPU-accelerated halo-exchange stencil, the CUDA_PLAN §1 use case.
-// Compiled with hg++ and run under SST/Mercury, it answers questions like "does
-// compute/comms overlap survive at scale?" and "is GPUDirect worth it?" without
-// any real GPU. The kernel never executes; its time is modeled (roofline or a
-// calibration table), the halo MPI rides the simulated Merlin network, and the
-// gpu_direct knob toggles PCIe staging of the device buffers.
-//
-// See README.md for the build + calibrate-once + gpu_direct-sweep walk-through.
+// Example: GPU halo-exchange stencil with compute/comms overlap (CUDA_PLAN §1 use case).
 
 #define ssthg_app_name mercury_cuda_halo
 #include <skeleton.h>
@@ -14,8 +7,7 @@
 #include <cuda_runtime.h>
 #include <cstdio>
 
-// Per-thread costs feed the roofline; a calibration entry for this kernel's
-// mangled name overrides them (see gpu_calibration.json).
+// Roofline costs; calibration table may override (gpu_calibration.json).
 #pragma sst gpu_compute flops(8) read(16) write(8)
 __global__ void stencil(float* u, int n) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -42,9 +34,7 @@ int main(int argc, char** argv) {
   int right = (rank + 1) % size;
 
   for (int step = 0; step < 20; ++step) {
-    // Interior compute on its own stream -- overlaps the halo exchange.
     stencil<<<b, t, 0, compute>>>(u, n);
-    // Pack + exchange the halo straight from device memory (GPUDirect-style).
     cudaMemcpyAsync(sendbuf, u, halo * sizeof(float), cudaMemcpyDeviceToDevice, comms);
     cudaStreamSynchronize(comms);
     MPI_Sendrecv(sendbuf, halo, MPI_FLOAT, right, 0,

@@ -1,8 +1,4 @@
-// P4: cost derivation is limited to straight-line kernels. A kernel with a loop
-// (whose trip count may reference the CUDA builtins or kernel-local variables
-// that are not bound at the host launch site) is NOT derived -- the launch falls
-// back to zero work + a warning, and the TU still compiles. This guards against
-// emitting non-compiling cost code; loop derivation is future work.
+// P4: loop kernels fall back to zero work + warning (straight-line derivation only).
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %hgxx -c %s -o %t.d/out.o > %t.d/log 2>&1

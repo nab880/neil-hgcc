@@ -1,10 +1,4 @@
-/*
- * Phase-0 spike TU (CUDA-IMPL-PLAN.md). Textbook vecadd exercising exactly
- * the surface the P2 rewriter must handle: a __global__ kernel using the
- * builtin variables, a <<<>>> launch with dim3 config, and the
- * malloc/memcpy/sync runtime calls of the CUDA_PLAN.md §1 loop. Parsed
- * host-only against spike/stubs with no CUDA toolkit; never executed on a GPU.
- */
+/* Phase-0 vecadd spike: kernel, launch, and runtime surface for the rewriter. */
 #include <cuda_runtime.h>
 
 #include <cstdio>

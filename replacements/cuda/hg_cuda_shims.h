@@ -1,11 +1,4 @@
-/* Launch-configuration hooks for CUDA host-only parsing. With no CUDA SDK
- * detected, Sema resolves cudaConfigureCall when it builds a
- * CUDAKernelCallExpr for <<<>>> (FINDINGS.md finding 3). These are
- * declarations only: the rewriter (Phase 2 Track 2) lowers every launch to
- * sst_hg_cuda_launch, so a configure call never survives to codegen or link.
- * Both the legacy (cudaConfigureCall) and newer
- * (__cudaPush/PopCallConfiguration) launch ABIs are declared so a future LLVM
- * flipping its default launch lowering still parses. */
+/* Launch-config hooks Sema needs for <<<>>>; rewriter lowers launches. */
 #ifndef HGCC_CUDA_SHIMS_H
 #define HGCC_CUDA_SHIMS_H
 

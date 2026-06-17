@@ -1,6 +1,4 @@
-// P2 Track 2: __device__ / __constant__ variables have no host storage, so the
-// rewriter must NOT privatize them into get_sst_hg_global_data() offset lookups
-// the way it does host file-scope globals.
+// P2: __device__/__constant__ globals are not privatized like host file-scope globals.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %hgxx -c %s -o %t.d/out.o > %t.d/log 2>&1

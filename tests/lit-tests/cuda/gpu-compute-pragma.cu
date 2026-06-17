@@ -1,7 +1,4 @@
-// P2/P4: #pragma sst gpu_compute attaches costs to a kernel decl or a launch
-// statement, and the launch carries them verbatim -- the pragma takes precedence
-// over the costs P4 would otherwise derive from the body. A kernel with no pragma
-// instead has its per-thread cost derived (ComputeVisitor), not zeroed.
+// P2/P4: #pragma sst gpu_compute overrides derived per-thread costs at decl or launch.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %hgxx -c %s -o %t.d/out.o > %t.d/log 2>&1

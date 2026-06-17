@@ -1,8 +1,4 @@
-// P2/P4: the model does not execute the kernel, but a launch argument with side
-// effects must still be evaluated exactly once. With no pragma, the launch takes
-// the derived-cost path, which captures every argument into a temporary (so the
-// kernel parameters can be referenced by the derived cost) -- and that capture
-// is what preserves the side effect: next_id() is evaluated once.
+// P2/P4: side-effecting launch args are evaluated exactly once via capture temporaries.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %hgxx -c %s -o %t.d/out.o > %t.d/log 2>&1

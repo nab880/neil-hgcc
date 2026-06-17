@@ -1,8 +1,4 @@
-// Phase 3: two independent streams overlap. The model gives each stream its own
-// timeline, so two kernels issued on separate streams finish in ~one kernel
-// time, while the same two kernels issued on one stream serialize to ~two. The
-// app measures both with cudaEvents (cudaEventElapsedTime -> the GPU stream
-// time between the records); run_test_cuda_streams.sh asserts serial > overlap.
+// Two streams overlap; cudaEvents measure overlap vs serial execution.
 
 #define ssthg_app_name test_cuda_streams
 #include <skeleton.h>
@@ -10,7 +6,7 @@
 #include <cuda_runtime.h>
 #include <cstdio>
 
-// Memory-bound so the kernel time dominates the launch overhead.
+// Memory-bound kernels so kernel time dominates launch overhead.
 #pragma sst gpu_compute read(64) write(64)
 __global__ void kA(float* a) { int i = blockIdx.x*blockDim.x + threadIdx.x; a[i] += 1.0f; }
 #pragma sst gpu_compute read(64) write(64)
@@ -28,14 +24,12 @@ int main(int /*argc*/, char** /*argv*/) {
   cudaEventCreate(&a0); cudaEventCreate(&a1);
   cudaEventCreate(&b0); cudaEventCreate(&b1);
 
-  // Overlapped: the two kernels run on independent streams.
   cudaEventRecord(a0, 0);
   kA<<<b, t, 0, s1>>>(da);
   kB<<<b, t, 0, s2>>>(db);
   cudaEventRecord(a1, 0);
   cudaDeviceSynchronize();
 
-  // Serialized: the same two kernels share one stream.
   cudaEventRecord(b0, 0);
   kA<<<b, t, 0, s1>>>(da);
   kB<<<b, t, 0, s1>>>(db);

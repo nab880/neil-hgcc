@@ -1,7 +1,4 @@
-/* Replacement <vector_types.h> for CUDA host-only simulation builds.
- * dim3 with the usual 1-filling constructor so `dim3 block(256)` and the
- * implicit conversions in <<<>>> configs parse. Promoted from the Phase-0
- * spike stub (spike/stubs/vector_types.h). */
+/* dim3 with 1-filling constructor for <<<>>> configs. */
 #ifndef HGCC_CUDA_VECTOR_TYPES_H
 #define HGCC_CUDA_VECTOR_TYPES_H
 

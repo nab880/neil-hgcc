@@ -58,9 +58,6 @@ ComputeVisitor::visitAccessDeclRefExpr(DeclRefExpr* expr, MemoryLocation& mloc)
   Variable& var = variables[decl];
   mloc.append(var.id);
   mloc.updateGeneration(var.generation);
-  //std::cout << "access depends on variable " << (char) var.id
-  //          << " at generation " << var.generation
-  //          << " -> " << mloc.maxGen << std::endl;
 }
 
 void
@@ -123,8 +120,6 @@ ComputeVisitor::visitAccessArraySubscriptExpr(
   AccessHistory& access = arrays[subLoc];
   if (updateDependence){
     mloc.updateGeneration(access.lastWriteGeneration);
-    //std::cout << "access depends on " << subLoc.c_str() << " at generation "
-    //          << access.lastWriteGeneration << "->" << mloc.maxGen << std::endl;
   }
   mloc.append(subLoc);
 }
@@ -289,21 +284,10 @@ ComputeVisitor::visitBodyArraySubscriptExpr(ArraySubscriptExpr* expr, Loop::Body
   visitAccessArraySubscriptExpr(expr, body, mloc, false); //do not update dependence
   //okay, now we have an array access to check
   AccessHistory& acc = arrays[mloc];
-  /**
-  std::cout << (isLHS ? "wrote " : "read ")
-            << mloc.c_str() << " at rw=("
-            << acc.lastReadGeneration << "," << acc.lastWriteGeneration
-            << ") during gen " << currentGeneration
-            << " with gen dep " << mloc.maxGen
-            << " at " << getStart(expr).printToString(CI.getSourceManager())
-            << std::endl; */
   bool newAccess = acc.newAccess(mloc.maxGen, currentGeneration, isLHS);
   if (newAccess){
     TypeInfo ti = CompilerGlobals::CI().getASTContext().getTypeInfo(expr->getType());
-    //std::cout << "sizeof(" << expr->getType()->getTypeClassName()
-    //          << ")=" << ti.Width << std::endl;
 
-    //fails data flow check OR first access
     if (isLHS) body.writeBytes += ti.Width / 8;
     else       body.readBytes += ti.Width / 8;
   }
@@ -378,8 +362,7 @@ ComputeVisitor::visitBodyIfStmt(IfStmt *stmt, Loop::Body &body)
   auto iter = CompilerGlobals::astNodeMetadata.predicatedBlocks.find(stmt);
   if (iter == CompilerGlobals::astNodeMetadata.predicatedBlocks.end()){
     if (derivingKernelCost_){
-      // Deriving a per-thread kernel cost: count the then-branch (the guarded
-      // work) as a conservative upper bound, rather than assuming not taken.
+      // Deriving kernel cost: count then-branch as conservative upper bound.
       addOperations(stmt->getThen(), body);
     } else {
       warn(stmt, "if-stmt inside compute block has no prediction hint - assuming always false");
@@ -675,11 +658,6 @@ ComputeVisitor::setContext(Stmt* stmt){
 void
 ComputeVisitor::emitCostAccumulation(std::ostream& os, Loop& loop)
 {
-  // Declare the four cost accumulators and emit the runtime statements that
-  // sum them over the (possibly nested) loop tree. Factored out of replaceStmt
-  // so callers other than #pragma sst compute (e.g. the CUDA launch rewrite,
-  // which needs per-thread F/I/R/W) can reuse the accumulation without the
-  // sst_hg_compute_detailed call.
   os << "uint64_t flops=0; uint64_t readBytes=0; uint64_t writeBytes=0; uint64_t intops=0; ";
   addLoopContribution(os, loop);
 }
@@ -694,10 +672,7 @@ ComputeVisitor::deriveKernelCost(Stmt* body, std::string& accumOut)
   sawLoop_ = false;
   setContext(body);
   addOperations(body, loop.body);
-  // Loop bounds may reference kernel-local variables that are not bound at the
-  // launch site (and trip scope validation on the builtins), so fall back to the
-  // zero+warn path for any kernel with a loop -- straight-line kernels (the
-  // common vecadd/stencil shape) derive cleanly.
+  // Loops need launch-site locals; fall back to zero+warn.
   if (sawLoop_) return false;
   std::stringstream os;
   emitCostAccumulation(os, loop);

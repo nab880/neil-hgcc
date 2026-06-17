@@ -1,10 +1,4 @@
-// P2 Track 1: each replacement header is self-contained -- including the
-// sub-headers directly (not via the cuda_runtime.h umbrella) must parse through
-// preprocess + ssthg_clang, so none silently relies on umbrella include
-// ordering. The cuda/ replacement dir is auto-added on the include path for any
-// .cu. We assert the ssthg_clang intermediate is produced (parse succeeded) and
-// no replacement header was missing. (Full host -c is a Track 2 concern; see
-// headers-positive.cu.)
+// P2 Track 1: each replacement sub-header parses self-contained (no umbrella ordering).
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %hgxx -c %s -ferror-limit=100 -o %t.d/out.o > %t.d/log 2>&1 || true

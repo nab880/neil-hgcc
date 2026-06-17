@@ -20,8 +20,8 @@ from sst.hg import *
 
 if __name__ == "__main__":
 
-    nranks = int(os.environ.get("NRANKS", "2"))         # §1 sweep is 2-8 ranks
-    gpu_direct = os.environ.get("GPUDIRECT", "false")    # the acceptance knob
+    nranks = int(os.environ.get("NRANKS", "2"))
+    gpu_direct = os.environ.get("GPUDIRECT", "false")
 
     PlatformDefinition.loadPlatformFile("platform_file_hg_test")
     PlatformDefinition.setCurrentPlatform("platform_hg_test")

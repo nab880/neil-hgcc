@@ -23,9 +23,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <map>
 #include <string>
 
-/** Per-launch cost vector the rewriter passes to sst_hg_cuda_launch. Each field
- * is a source expression string over kernel parameters/builtins (P2 commonly a
- * literal; P4 fills derived expressions). Default "0". */
+/* Per-thread cost expressions passed to sst_hg_cuda_launch (default "0"). */
 struct GpuComputeCost {
   std::string flops = "0";
   std::string intops = "0";
@@ -33,12 +31,7 @@ struct GpuComputeCost {
   std::string bytesWritten = "0";
 };
 
-/** #pragma sst gpu_compute flops(<e>) intops(<e>) read(<e>) write(<e>)
- *
- * Attaches a manual cost vector to a kernel FunctionDecl or to a launch
- * statement; TraverseCUDAKernelCallExpr reads it when lowering the launch.
- * Runs in the first pass so a kernel's costs are recorded before any launch of
- * it is rewritten in the main pass. */
+/* #pragma sst gpu_compute: attach manual costs to a kernel decl or launch stmt. */
 class SSTGpuComputePragma : public SSTPragma {
  public:
   SSTGpuComputePragma(clang::SourceLocation loc,
@@ -49,9 +42,7 @@ class SSTGpuComputePragma : public SSTPragma {
   void activate(clang::Stmt* s) override;
   void activate(clang::Decl* d) override;
 
-  /** Cost attached to a kernel decl (keyed by canonical decl), or null. */
   static const GpuComputeCost* costForDecl(const clang::Decl* d);
-  /** Cost attached to a specific launch statement, or null. */
   static const GpuComputeCost* costForStmt(const clang::Stmt* s);
 
  private:

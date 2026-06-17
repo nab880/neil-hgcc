@@ -1,6 +1,4 @@
-/* Spike stub for the CUDA toolkit's driver_types.h: just the types vecadd.cu
- * and the launch machinery need. Error paths do not exist in the model
- * (CUDA_PLAN.md §8), so cudaError_t is minimal. */
+/* Minimal CUDA driver types for the spike. */
 #ifndef SPIKE_DRIVER_TYPES_H
 #define SPIKE_DRIVER_TYPES_H
 

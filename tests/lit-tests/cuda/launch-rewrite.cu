@@ -1,7 +1,4 @@
-// P2 Track 2 golden test: a kernel + <<<>>> launch + #pragma sst gpu_compute
-// lowers to a sst_hg_cuda_launch ABI call with the pragma's costs, the kernel
-// body is stripped, and the whole TU compiles to an object in CUDA host-only
-// mode. FileCheck the ssthg_clang intermediate sst.pp.*.
+// P2 golden: <<<>>> + gpu_compute lowers to sst_hg_cuda_launch; kernel body stripped.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %hgxx -c %s -o %t.d/out.o > %t.d/log 2>&1

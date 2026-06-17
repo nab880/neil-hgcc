@@ -1,9 +1,4 @@
-// P2: the CUDA launch rewrite fires in EVERY mode, not just skeletonize. A
-// plain `hg++ -c foo.cu` runs in the default ENCAPSULATE mode; if the rewrite
-// were gated on skeletonize, the <<<>>> would silently survive and the kernel
-// would link against the host launch stub, unmodeled and with no diagnostic.
-// The lit harness forces SST_HG_SKELETONIZE=1 globally, so this test overrides
-// it to 0 to exercise the default mode explicitly.
+// P2: launch rewrite runs in ENCAPSULATE mode (SST_HG_SKELETONIZE=0), not only skeletonize.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: env SST_HG_SKELETONIZE=0 %hgxx -c %s -o %t.d/out.o > %t.d/log 2>&1

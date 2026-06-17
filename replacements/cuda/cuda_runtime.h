@@ -1,19 +1,4 @@
-/* Replacement <cuda_runtime.h> — the umbrella header CUDA user code includes,
- * for toolkit-free host-only simulation builds (CUDA_PLAN.md D2). It owns:
- *
- *   1. the function-type qualifier macros (__global__ et al.); clang's CUDA
- *      mode treats them as plain attribute macros, not keywords;
- *   2. the CUDA types (driver_types.h / vector_types.h);
- *   3. the builtin variables (device_launch_parameters.h);
- *   4. the launch-configuration hooks Sema resolves for <<<>>> (hg_cuda_shims.h);
- *   5. the runtime API, lowered to the sst_hg_cuda ABI (hg_cuda.h) by the
- *      static inline wrappers below. The rewriter (Phase 2 Track 2) handles
- *      only <<<>>> and kernel bodies; ALL runtime API lowering happens here.
- *
- * __host__ and __device__ are pre-defined on the command line by the hgcc
- * driver (_cuda_lang_flags); the macro block below redefines them to the same
- * tokens (a benign identical redefinition) and adds the rest. Keep these
- * spellings in sync with the driver. */
+/* Toolkit-free replacement <cuda_runtime.h> for CUDA host-only simulation builds. */
 #ifndef HGCC_CUDA_RUNTIME_H
 #define HGCC_CUDA_RUNTIME_H
 
@@ -37,11 +22,7 @@
 
 #include <hgcc/libraries/hg_cuda.h>
 
-/* Runtime API -> sst_hg_cuda ABI. static inline so the host C++ compile
- * inlines each call away (e.g. cudaMalloc((void**)&p, n) nets
- * p = sst_hg_cuda_malloc(n)); no external cuda* symbol is emitted. All return
- * cudaSuccess: the model has no error paths (CUDA_PLAN.md §8). */
-
+/* Runtime API -> sst_hg_cuda ABI (static inline, always cudaSuccess). */
 static inline cudaError_t cudaMalloc(void** devPtr, size_t size) {
   *devPtr = sst_hg_cuda_malloc(size);
   return cudaSuccess;
@@ -90,8 +71,7 @@ static inline cudaError_t cudaEventCreate(cudaEvent_t* event) {
   return cudaSuccess;
 }
 
-/* No sst_hg_cuda_event_destroy in the v1 ABI: event ids are trivial and not
- * reclaimed, so destruction is a no-op. */
+/* v1 ABI has no event_destroy; destruction is a no-op. */
 static inline cudaError_t cudaEventDestroy(cudaEvent_t event) {
   (void)event;
   return cudaSuccess;

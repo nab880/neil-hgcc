@@ -1,29 +1,12 @@
 #!/usr/bin/env python3
-# Analytical (Calculon-style) closed-form baseline for the data-parallel
-# transformer training step (WS3 validation). It predicts the step time from
-# first principles using the SAME model the simulator charges -- the dual
-# roofline (WS1-1a) + wave/tile quantization (WS1-1b) for compute, and a
-# closed-form all-reduce for communication -- but with NO network contention.
-#
-# Purpose: a no-contention reference. On a single crossbar (no contention) the
-# packet-level simulator should agree with this to within a few percent, which
-# validates the simulator's bookkeeping; on a real fabric (fat-tree at scale)
-# the simulator diverges, and that divergence -- contention -- is exactly what an
-# analytical model cannot capture and what the simulator is for.
-#
-# Mirrors examples/mercury_llm_train/train.cu: keep the dims and per-kernel flops
-# in sync with that file.
+# Analytical no-contention baseline for the DP transformer step (mirrors train.cu dims).
 
 import argparse, math
 
-# ---- workload (must match train.cu) ----------------------------------------
 H, T, FF = 4096, 2048, 4 * 4096
-GRAD_ELEMS = 12 * H * H            # weight-grad elements all-reduced per layer
-TYPE_SIZE = 4                      # float
+GRAD_ELEMS = 12 * H * H
+TYPE_SIZE = 4
 
-# Per-kernel (threads, flops_per_thread, bytes_per_thread, is_tensor). threads is
-# the grid_for() thread count from forward_layer(); GEMMs are tensor-core, the
-# elementwise kernels are memory-bound CUDA-core (read+write = 8 bytes).
 KERNELS = [
     ("layernorm",    T * H,     0,    8, False),
     ("qkv_proj",     T * 3 * H, 8192, 20, True),
@@ -36,7 +19,7 @@ KERNELS = [
     ("gelu",         T * FF,    0,    8, False),
     ("mlp_down",     T * H,     32768, 20, True),
 ]
-BLOCK = 256                        # threads/block in train.cu
+BLOCK = 256
 
 
 def wave_penalty(threads, sm_count, max_threads_per_sm=2048, max_blocks_per_sm=32):
@@ -62,21 +45,18 @@ def layer_compute(a):
 
 
 def step_compute(a):
-    # forward: L layer-passes; backward: L layers x 2 forward_layer each = 2L.
+    # forward L + backward 2L layer-passes.
     return (a.layers + 2 * a.layers) * layer_compute(a)
 
 
 def allreduce_time(nbytes, n, a, alg):
-    """Closed-form all-reduce wall time, no contention.
-    ring: 2(n-1) steps of nbytes/n each -> bandwidth-optimal.
-    recdouble: 2 log2(n) steps; the reduce-scatter/all-gather halving moves the
-    same 2(n-1)/n*nbytes per rank but in log steps -> latency-optimal."""
+    """Closed-form all-reduce wall time (ring or recursive-doubling), no contention."""
     if n <= 1:
         return 0.0
     bw_term = 2.0 * (n - 1) / n * nbytes / a.link_bw
     if alg == "ring":
         steps = 2 * (n - 1)
-    else:  # recursive-doubling
+    else:
         steps = 2 * math.ceil(math.log2(n))
     return bw_term + steps * a.link_lat
 
@@ -86,12 +66,10 @@ def step_time(a, alg):
     if a.nranks <= 1:
         return compute, compute, 0.0
     grad_bytes = GRAD_ELEMS * TYPE_SIZE
-    # one all-reduce per backward layer
     comms = a.layers * allreduce_time(grad_bytes, a.nranks, a, alg)
-    # backward compute (2/3 of the step) is the window the all-reduces overlap.
     backward = 2 * a.layers * layer_compute(a)
     if a.overlap:
-        total = compute + max(0.0, comms - backward)   # comms hidden under backward
+        total = compute + max(0.0, comms - backward)
     else:
         total = compute + comms
     return total, compute, comms

@@ -1,7 +1,4 @@
-// P2 Track 2 (commit 1): #pragma sst gpu_compute parses its flops/intops/read/
-// write clauses and is consumed (deleteOnUse) -- the pragma line itself does not
-// survive into the rewritten output, and the TU compiles. The launch lowering
-// that reads these costs is covered by gpu-compute-pragma.cu.
+// P2: #pragma sst gpu_compute parses and is consumed (deleteOnUse).
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %hgxx -c %s -o %t.d/out.o > %t.d/log 2>&1

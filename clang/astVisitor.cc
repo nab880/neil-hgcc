@@ -60,9 +60,7 @@ clang::LangOptions Printing::langOpts;
 clang::PrintingPolicy Printing::policy(Printing::langOpts);
 
 llvm::cl::OptionCategory CompilerGlobals::ssthgCategoryOpt("SST/Macro options");
-// CommonOptionsParser registers -p/extra-arg/positionals with
-// cl::sub(SubCommand::getAll()). LLVM 17+ treats options without the same
-// sub() as unrelated, so --system-includes was rejected as unknown.
+// LLVM 17+ requires cl::sub(SubCommand::getAll()) or --system-includes is rejected.
 llvm::cl::opt<std::string> CompilerGlobals::includeListOpt("system-includes",
   llvm::cl::desc("Give the list of default system include paths for the pre-processing compiler"),
   llvm::cl::value_desc("list:of:paths"),
@@ -114,15 +112,8 @@ using namespace clang::driver;
 using namespace clang::tooling;
 using namespace modes;
 
-/**
- * @brief isFxnPointerForm
- * @param qt
- * @return Whether a type is a function pointer type and is implicit such as (void)(*funcvar)(int);
- *         rather than typedef void(*functype)(int); functype funcvar;
- */
 static bool isFxnPointerForm(QualType qt)
 {
-  //typedefs need no special treatment
   bool isTypeDef = isa<TypedefType>(qt.getTypePtr());
   if (isTypeDef) return false;
 
@@ -137,10 +128,7 @@ static std::string appendText(clang::Expr* expr, const std::string& toAppend)
   return pp.str();
 }
 
-// One-shot stderr warning: lambda capture init resolves to a class peelExpr
-// does not recognize. An unknown wrapper around a global DeclRef would
-// silently fail to erase from globalsTouched_; surface it so peelExpr can be
-// extended.
+// Warn once when lambda capture peel hits an unrecognized leaf class.
 static bool _lambdaPeelUnknownLeafWarned = false;
 
 static void warnLambdaPeelUnknownLeaf(const std::string& varName,
@@ -1168,10 +1156,7 @@ isSideEffectFreeLaunchArg(const Expr* e)
   }
 }
 
-// In host compilation clang mangles a __global__ kernel as its host launch stub
-// __device_stub__<name>. The kernel's identity (and what calibration keys on) is
-// the device symbol, so strip the stub infix and fix the Itanium length prefix:
-// e.g. _Z21__device_stub__vecAddPKfS0_Pfi -> _Z6vecAddPKfS0_Pfi.
+// Host stub mangling embeds __device_stub__; strip it for calibration keys.
 static std::string
 stripDeviceStub(const std::string& mangled)
 {
@@ -1217,8 +1202,6 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
 
   std::string kernelName = mangleKernelName(kernel);
 
-  // <<<grid, block, shmem, stream>>>: the config is a cudaConfigureCall whose
-  // args are grid, block, and optionally shared-mem and stream (defaulted to 0).
   CallExpr* cfg = expr->getConfig();
   auto cfgArg = [&](unsigned i, const char* dflt) -> std::string {
     if (!cfg || i >= cfg->getNumArgs()) return dflt;
@@ -1233,10 +1216,7 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
 
   int id = cudaLaunchCounter_++;
 
-  // Per-thread costs. Precedence: a #pragma sst gpu_compute on the launch stmt >
-  // one on the kernel decl > costs derived from the kernel body > zero+warn.
-  // Pragma costs are scalar expressions; derived costs are a runtime accumulation
-  // block that computes flops/intops/readBytes/writeBytes (ComputeVisitor).
+  // Cost precedence: launch pragma > kernel pragma > derived > zero+warn.
   const GpuComputeCost* cost = SSTGpuComputePragma::costForStmt(expr);
   if (!cost) cost = SSTGpuComputePragma::costForDecl(kernel);
 
@@ -1253,26 +1233,15 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
   }
 
   std::stringstream os;
-  // GNU statement-expression: bind the configs to dim3 temporaries (normalizing
-  // the int/dim3/var forms via the 1-filling ctor).
   os << "({ dim3 __sst_g_" << id << " = (" << gridStr << "); "
      << "dim3 __sst_b_" << id << " = (" << blockStr << "); ";
 
   std::string costArgs;
   if (haveDerived){
-    // Bind the device builtins and each kernel parameter as same-named locals so
-    // the derived accumulation resolves at the host call site. threadIdx/blockIdx
-    // are pinned to 0 -- thread 0 does the most grid-stride iterations, so the
-    // per-thread cost is a conservative upper bound. Binding each parameter also
-    // evaluates its launch argument exactly once (preserving side effects), so
-    // the separate (void)(arg) is not emitted here.
+    // Bind builtins/params at launch site; threadIdx/blockIdx pinned to 0.
     os << "dim3 gridDim = __sst_g_" << id << ", blockDim = __sst_b_" << id << "; "
        << "dim3 threadIdx(0,0,0), blockIdx(0,0,0); ";
-    // Capture each launch argument into a unique temp first (its expression
-    // resolves in the host scope, evaluated exactly once), then alias the temp
-    // to the kernel parameter's name. The two steps avoid a self-reference when
-    // an argument names a host variable matching the parameter (param `n` passed
-    // a host `n` would otherwise emit the illegal `auto n = (n)`).
+    // Capture args into temps first to preserve side effects and avoid self-ref.
     for (unsigned i = 0; i < expr->getNumArgs(); ++i){
       os << "auto __sst_arg" << id << "_" << i << " = ("
          << printWithGlobalsReplaced(expr->getArg(i)) << "); ";
@@ -1295,8 +1264,7 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
     os << derivedAccum;
     costArgs = "flops, intops, readBytes, writeBytes";
   } else {
-    // Pragma or zero: preserve side-effecting launch args, since the kernel is
-    // not executed.
+    // Preserve side-effecting launch args when the kernel is not executed.
     for (unsigned i = 0; i < expr->getNumArgs(); ++i){
       Expr* arg = expr->getArg(i);
       if (!isSideEffectFreeLaunchArg(arg)){
@@ -1328,12 +1296,8 @@ SkeletonASTVisitor::TraverseCUDAKernelCallExpr(CUDAKernelCallExpr* expr,
   }
   try {
     PragmaActivateGuard pag(expr, this);
-    if (pag.skipVisit()) return true; //e.g. #pragma sst delete on the launch
-    // Lower the launch in every mode, matching the device-body strip in
-    // TraverseFunctionDecl (which is likewise gated on CUDA only). A plain
-    // build runs in ENCAPSULATE mode, so a mode-restricted gate would silently
-    // leave <<<>>> unlowered -- the kernel would link against the host launch
-    // stub instead of the sst_hg_cuda ABI, unmodeled and with no diagnostic.
+    if (pag.skipVisit()) return true;
+    // Lower in every CUDA mode (including ENCAPSULATE), not skeletonize-only.
     rewriteCudaLaunch(expr);
   } catch (StmtDeleteException& e) {
     if (e.deleted != expr) throw e;
@@ -1367,21 +1331,6 @@ SkeletonASTVisitor::getArrayType(const Type* ty, cArrayConfig& cfg)
   }
 }
 
-
-/* TODO remove, unused
-static RecordDecl* getRecordDeclForType(QualType qt)
-{
-  if (qt->isStructureType() || qt->isClassType()){
-    const RecordType* rt = qt->getAsStructureType();
-    return rt->getDecl();
-  } else if (qt->isUnionType()){
-    const RecordType* rt = qt->getAsUnionType();
-    return rt->getDecl();
-  } else {
-    return nullptr;
-  }
-}
-*/
 
 void
 SkeletonASTVisitor::arrayFxnPointerTypedef(VarDecl* D, SkeletonASTVisitor::ArrayInfo* info,

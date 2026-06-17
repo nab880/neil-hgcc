@@ -1,6 +1,4 @@
-// P2 Track 2: #pragma sst delete on a launch statement removes it entirely (the
-// new traversal honors skipVisit like the other call-expr traversals). No
-// sst_hg_cuda_launch call is emitted for the deleted launch.
+// P2: #pragma sst delete removes a launch entirely (no sst_hg_cuda_launch emitted).
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %hgxx -c %s -o %t.d/out.o > %t.d/log 2>&1

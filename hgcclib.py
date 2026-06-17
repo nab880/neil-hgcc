@@ -354,9 +354,7 @@ def run(typ, extraLibs=""):
   ctx.sstCore = sstCore
   ctx.hasClang = bool(clangCppFlagsStr)
 
-  # MVAPICH2 (and future --mpi=<impl>) needs the Mercury pthread replacement and
-  # an -I on the MPI install's headers. Fold pthread.h into args.replacements so
-  # the existing temp-dir replacement machinery below handles it uniformly.
+  # MVAPICH2: add pthread.h replacement and MPI include path.
   ctx.mpi_impl = None
   ctx.mpi_prefix = None
   ctx.app_name = None
@@ -386,11 +384,7 @@ def run(typ, extraLibs=""):
       _existing.append("pthread.h")
       args.replacements = ",".join(_existing)
 
-  # CUDA: any .cu in the invocation flips cudaMode. Decided here, before the
-  # replacement machinery below, so the cuda/ replacement set rides the same
-  # temp-dir path as --mpi's pthread.h. Until P2 ships the headers each entry
-  # is a warned no-op (missing replacements only warn). Per-TU language flags
-  # are NOT gated on this — hgcompile decides those per source file suffix.
+  # Any .cu in the invocation enables cuda/ replacement headers.
   ctx.cudaMode = any(
       a.strip().strip("'").endswith('.cu') for a in (extraArgs or []))
   if ctx.cudaMode and not ctx.is_conftest:
@@ -407,8 +401,7 @@ def run(typ, extraLibs=""):
   if args.replacements and not ctx.is_conftest:
     ctx.requestedReplacements = [r.strip() for r in args.replacements.split(',') if r.strip()]
     
-    # Create a temporary directory with only the specified replacement headers
-    # This ensures only the requested headers are available as replacements
+    # Temp dir with only the requested replacement headers.
     import tempfile
     import shutil
     replacementsPath = os.path.join(prefix, "include", "replacements")
@@ -459,10 +452,7 @@ def run(typ, extraLibs=""):
     args.I.insert(0, tempReplacementsDir)
     args.I.insert(1, os.path.join(prefix, "include"))
 
-    # CUDA replacements live in a cuda/ subdir of the temp dir, but user code
-    # includes them flat (<cuda_runtime.h>), so put that subdir on the include
-    # path directly -- like pointing -I at a real CUDA toolkit's include dir.
-    # args.I feeds preprocess, ssthg_clang (via base_argv) and host -c alike.
+    # User code includes <cuda_runtime.h> flat; -I the cuda/ subdir directly.
     if ctx.cudaMode:
       args.I.insert(0, os.path.join(tempReplacementsDir, "cuda"))
 
@@ -517,8 +507,7 @@ def run(typ, extraLibs=""):
     val = int(os.environ["SST_HG_SKELETONIZE"])
     skeletonizing = bool(val)
   if skeletonizing or (not args.skeletonize is None):
-    # Apple-LLVM-linked ssthg_clang's CommonOptionsParser rejects --skeletonize;
-    # ssthg_clang reads SST_HG_SKELETONIZE directly, so propagate via env.
+    # Apple-LLVM ssthg_clang reads SST_HG_SKELETONIZE from env, not --skeletonize.
     os.environ["SST_HG_SKELETONIZE"] = "1"
     ctx.setMode(ctx.SKELETONIZE)
 
@@ -652,10 +641,7 @@ def run(typ, extraLibs=""):
   elif typ.lower() == "c":
     ctx.compiler = ctx.cc
     ctx.ld = ctx.cxx
-    # If the Clang AST driver (ssthg_clang) was not built but a C source is being
-    # compiled in simulate mode, global-variable src-to-src rewriting will be
-    # skipped. Warn so users can see why skeletonization did not happen, but do
-    # not abort — plain C -c still works and conftest / host tools depend on it.
+    # C without ssthg_clang skips global-variable rewriting.
     if ctx.simulateMode() and not ctx.hasClang and not getattr(ctx, "is_conftest", False):
       sys.stderr.write(
           "WARNING: hgcc: compiling C source without Clang AST driver; "

@@ -1,37 +1,17 @@
-/*
- * Hand-written expected output of the Phase-2 rewriter for spike/vecadd.cu —
- * the contract the ssthg_clang work is built to satisfy. Compiled as plain
- * C++ (-x c++) against spike/stub_hg_cuda.cc by probe 5.
- *
- * What the rewriter did (per CUDA_PLAN.md §5/§7):
- *   - __global__ vecAdd: body stripped after cost extraction; nothing of the
- *     kernel survives into the C++ output.
- *   - vecAdd<<<grid, block>>>(da, db, dc, n) -> sst_hg_cuda_launch(...) with
- *     the kernel's mangled name and per-thread costs. Costs here are
- *     hand-derived (P4 wires ComputeVisitor): c[i] = a[i] + b[i] under a
- *     bounds check is 1 flop, ~3 int ops (index math + compare), 8 bytes
- *     read, 4 bytes written per thread.
- *   - cudaMalloc/cudaMemcpy/cudaDeviceSynchronize/cudaFree arrive here
- *     already mapped to sst_hg_cuda_* by the replacement <cuda_runtime.h>,
- *     which -E inlines; dim3 below stands in for the same inlining.
- *   - main is NOT renamed here: the sst_hg_user_main_* rename and the
- *     sstGlobals companion TU are existing pipeline behavior, untouched by
- *     CUDA mode and out of spike scope.
- */
+/* Expected Phase-2 rewriter output for spike/vecadd.cu (probe 5 contract). */
 #include "hg_cuda.h"
 
 #include <cstdio>
 #include <cstdlib>
 
-/* inlined by -E from the replacement vector_types.h */
+/* Inlined dim3 from replacement vector_types.h */
 struct dim3 {
   unsigned int x, y, z;
   constexpr dim3(unsigned int vx = 1, unsigned int vy = 1, unsigned int vz = 1)
       : x(vx), y(vy), z(vz) {}
 };
 
-/* __global__ void vecAdd(const float*, const float*, float*, int)
-   { body stripped by ssthg_clang } */
+/* __global__ vecAdd body stripped by ssthg_clang */
 
 int main(int argc, char** argv)
 {

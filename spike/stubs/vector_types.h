@@ -1,5 +1,4 @@
-/* Spike stub for vector_types.h: dim3 with the usual 1-filling constructor
- * so `dim3 block(256)` and implicit conversions in <<<>>> configs work. */
+/* dim3 with 1-filling constructor. */
 #ifndef SPIKE_VECTOR_TYPES_H
 #define SPIKE_VECTOR_TYPES_H
 

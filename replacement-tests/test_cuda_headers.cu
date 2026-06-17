@@ -1,8 +1,4 @@
-// Standalone smoke source for the P2 Track 1 CUDA replacement headers. A
-// kernel-free TU (no <<<, so it compiles through host -c -- launch rewriting
-// is Track 2) that exercises the shipped replacement <cuda_runtime.h> and its
-// runtime-API -> sst_hg_cuda ABI lowering. Link + run-under-SST awaits the
-// Mercury GPU library (Phase 2 Track 3).
+// Smoke source for P2 Track 1 CUDA replacement headers (runtime API -> sst_hg_cuda ABI).
 #include <cuda_runtime.h>
 #include <skeleton.h>
 #define ssthg_app_name test_cuda_headers

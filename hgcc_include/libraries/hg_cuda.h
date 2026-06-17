@@ -1,16 +1,4 @@
-/* sst_hg_cuda ABI (CUDA_PLAN.md §3): the C entry points that the CUDA
- * source-to-source output calls and the Mercury GPU library implements.
- * hgcc installs this header; sst-elements includes it from the install tree
- * (mercury/libraries/gpu/, Phase 2 Track 3) and asserts SST_HG_CUDA_ABI_VERSION.
- *
- * All calls forward to the active Mercury OS thread, like ComputeAPI
- * (mercury/libraries/compute/compute_api.h). Async ops enqueue and return;
- * *_sync blocks the calling virtual thread; default stream (NULL) follows
- * legacy synchronizing semantics. All state is per-rank.
- *
- * This is the canonical copy; spike/hg_cuda.h is the signature-identical
- * Phase-0 vetting copy.
- */
+/* sst_hg_cuda ABI: C entry points for rewritten CUDA and the Mercury GPU library. */
 #ifndef SST_HG_CUDA_H
 #define SST_HG_CUDA_H
 
@@ -32,8 +20,6 @@ void  sst_hg_cuda_launch(const char* kernelName,
                          uint32_t gx, uint32_t gy, uint32_t gz,
                          uint32_t bx, uint32_t by, uint32_t bz,
                          uint64_t shmemBytes, void* stream,
-                         /* per-thread costs; the model may override via the
-                            calibration table (CUDA_PLAN.md §4.1): */
                          uint64_t flops, uint64_t intops,
                          uint64_t bytesRead, uint64_t bytesWritten);
 void* sst_hg_cuda_stream_create(void);

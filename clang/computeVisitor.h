@@ -65,14 +65,10 @@ class ComputeVisitor  {
 
   void addOperations(clang::Stmt* stmt, Loop::Body& body, bool isLHS = false);
 
-  // Emit the runtime cost accumulation (declares + sums flops/intops/readBytes/
-  // writeBytes over the loop tree), without the sst_hg_compute_detailed call.
+  // Sum F/I/R/W over the loop tree (no sst_hg_compute_detailed call).
   void emitCostAccumulation(std::ostream& os, Loop& loop);
 
-  // Analyze a function/kernel body and return the accumulation block (the
-  // statements that compute the four per-thread cost variables). Used by the
-  // CUDA launch rewrite to derive costs when no #pragma sst gpu_compute is given.
-  // Returns false if there is nothing to analyze.
+  // Derive per-thread cost accumulation for CUDA launch rewrite; false if unsupported.
   bool deriveKernelCost(clang::Stmt* body, std::string& accumOut);
 
  private:
@@ -83,12 +79,7 @@ class ComputeVisitor  {
 
   uint32_t idCount; //0 is sentinel for not inited
   uint32_t currentGeneration; //0 is sentinel for not inited
-  // Set while deriving a per-thread CUDA kernel cost (deriveKernelCost): an
-  // unhinted if is assumed TAKEN (conservative upper bound for bounds-check
-  // guards), and loops are short-circuited -- they would trip scope validation
-  // on the CUDA builtins and their bounds may reference locals not bound at the
-  // launch site -- recording sawLoop_ so the caller falls back to zero+warn.
-  // Default false preserves #pragma sst compute behavior.
+  // CUDA cost derivation: assume if taken; loops -> sawLoop_ and zero+warn fallback.
   bool derivingKernelCost_ = false;
   bool sawLoop_ = false;
   std::map<MemoryLocation,AccessHistory,MemoryLocationCompare> arrays;

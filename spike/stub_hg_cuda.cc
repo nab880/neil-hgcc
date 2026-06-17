@@ -1,17 +1,10 @@
-/*
- * Fixed-behavior stub of the sst_hg_cuda ABI (spike/hg_cuda.h) for probe 5:
- * prints every call and hands out device-pointer cookies from a reserved
- * fake range (CUDA_PLAN.md D6). The Mercury implementation
- * (mercury/libraries/gpu/, Phase 2 Track 3) replaces this entirely; only
- * the signatures matter here.
- */
+/* Fixed-behavior sst_hg_cuda stub for spike probe 5. */
 #include "hg_cuda.h"
 
 #include <cstdio>
 
 namespace {
-/* Cookie range: high canonical-invalid-ish base so accidental dereference
- * faults loudly. Bump-allocated, 256-byte aligned, never reused. */
+/* Bump-allocated fake device cookies in a high invalid-ish range. */
 const uint64_t kCookieBase = 0x4000000000000000ull;
 uint64_t g_next_cookie = kCookieBase;
 uint64_t g_cookie_end = kCookieBase;

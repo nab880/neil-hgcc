@@ -1,12 +1,4 @@
-/* Replacement <device_launch_parameters.h> for CUDA host-only simulation
- * builds: builtin variables + the bare device intrinsics a kernel body needs
- * to *parse*. Kernel bodies are stripped by the rewriter, so nothing here is
- * ever codegen'd or executed. Promoted from spike/stubs.
- *
- * threadIdx/blockIdx/blockDim/gridDim come from clang's own resource-dir
- * header __clang_cuda_builtin_vars.h, which ships with LLVM (not the CUDA
- * toolkit) and is available under -nocudainc. If a clang lacks it, fall back
- * to plain extern declarations — parse-only equivalence is all we need. */
+/* Builtin vars + device intrinsics for parse-only kernel bodies. */
 #ifndef HGCC_CUDA_DEVICE_LAUNCH_PARAMETERS_H
 #define HGCC_CUDA_DEVICE_LAUNCH_PARAMETERS_H
 
@@ -23,10 +15,7 @@ extern const int warpSize;
 #endif
 #endif
 
-/* Device intrinsics only need to *parse* inside kernel bodies (CUDA mode).
- * The rewriter strips those bodies before host -c, so guarding to __CUDA__
- * keeps the __device__ attribute off the plain-C++ host compile (where clang
- * warns 'device attribute ignored'). */
+/* Guard device intrinsics to __CUDA__ so host -c does not warn. */
 #if defined(__CUDA__)
 extern "C" __device__ void __syncthreads(void);
 extern "C" __device__ void __threadfence(void);

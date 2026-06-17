@@ -1,7 +1,4 @@
-// P4: with no #pragma sst gpu_compute and no calibration table, the launch
-// rewrite derives per-thread F/I/R/W from the kernel body (ComputeVisitor). The
-// bounds-check `if (i < n)` guard is assumed taken (a conservative per-thread
-// upper bound), so the guarded loads/stores/flop ARE counted -- not zero.
+// P4: per-thread F/I/R/W derived from kernel body; bounds-check guard assumed taken.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %hgxx -c %s -o %t.d/out.o > %t.d/log 2>&1

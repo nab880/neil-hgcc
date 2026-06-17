@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-# Closed-form per-rank GPU memory model -- the "does it fit?" companion to the
-# time model in validation/analytic_baseline.py. Given a model and a
-# DP/TP/PP/ZeRO parallelization, it sums the per-rank footprint (weights,
-# gradients, optimizer, activations, or KV cache for inference) and reports a
-# FITS/OOM verdict against a device capacity. Bytes are decimal (1 GB = 1e9) to
-# match SST UnitAlgebra ("80GB" -> 80e9), so the simulator's gpu_mem_capacity and
-# this model use the same units. Params per layer = 12*H^2 (matches GRAD_ELEMS in
-# the demos); embeddings = 2*V*H.
+# Closed-form per-rank GPU memory model (weights, grads, optimizer, activations/KV).
 
 import argparse
 
@@ -14,7 +7,7 @@ GB = 1e9
 
 # H, L (transformer layers), heads, V (vocab). FF assumed 4*H (-> 12*H^2/layer).
 PRESETS = {
-    "demo": dict(H=4096,  L=8,  heads=32, V=50304),   # the demo model (~2B)
+    "demo": dict(H=4096,  L=8,  heads=32, V=50304),
     "7b":   dict(H=4096,  L=32, heads=32, V=32000),
     "70b":  dict(H=8192,  L=80, heads=64, V=32000),
     "175b": dict(H=12288, L=96, heads=96, V=50257),
@@ -23,19 +16,19 @@ DEVICE_GB = {"a100-40": 40, "a100-80": 80, "h100-80": 80, "h200-141": 141}
 
 
 def param_count(H, L, V):
-    return L * 12 * H * H + 2 * V * H   # transformer layers + (untied) embeddings
+    return L * 12 * H * H + 2 * V * H
 
 
 def state_bytes(dtype_size, optimizer, mixed):
     """Per-param (weight, grad, optimizer) bytes, split so ZeRO can partition."""
-    if mixed:                       # bf16/fp16 compute, fp32 master copy
+    if mixed:
         weight, grad, master = dtype_size, dtype_size, 4
-    else:                           # fp32 -- weights are the master copy
+    else:
         weight, grad, master = 4, 4, 0
     if optimizer == "adam":
-        opt = master + 4 + 4        # +momentum +variance
+        opt = master + 4 + 4
     elif optimizer == "sgd":
-        opt = master + 4            # +momentum
+        opt = master + 4
     else:
         opt = master
     return weight, grad, opt
@@ -43,20 +36,18 @@ def state_bytes(dtype_size, optimizer, mixed):
 
 def training_footprint(a):
     P = param_count(a.H, a.L, a.V)
-    shard = a.tp * a.pp                       # params sharded by TP (within) and PP (layers)
+    shard = a.tp * a.pp
     p_rank = P / shard
     w, g, o = state_bytes(a.dtype, a.optimizer, a.mixed)
     dp = max(a.dp, 1)
-    # ZeRO over the DP group: 1 shards optimizer, 2 also grad, 3 also weight.
+    # ZeRO shards optimizer(1), grad(2), weight(3) over the DP group.
     wd = dp if a.zero >= 3 else 1
     gd = dp if a.zero >= 2 else 1
     od = dp if a.zero >= 1 else 1
     weights = p_rank * w / wd
     grads   = p_rank * g / gd
     optim   = p_rank * o / od
-    # ZeRO-3 transiently all-gathers one layer's unsharded params (largest single layer).
     transient = (12 * a.H * a.H) * w if a.zero >= 3 else 0.0
-    # 1F1B activations: PP in-flight microbatches x L/PP layers = L layers' worth.
     act_layer = a.act_factor * a.seq * a.micro_batch * a.H * a.dtype / a.tp
     activ = act_layer * a.L
     return {"weights": weights, "grads": grads, "optimizer": optim,

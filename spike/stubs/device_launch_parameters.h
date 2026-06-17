@@ -1,13 +1,4 @@
-/* Spike stub for device_launch_parameters.h: builtin variables + the bare
- * device intrinsics a kernel body needs to *parse* (bodies are stripped by
- * the rewriter; nothing here is ever codegen'd or executed).
- *
- * threadIdx/blockIdx/blockDim/gridDim come from clang's own resource-dir
- * header __clang_cuda_builtin_vars.h, which ships with LLVM (not the CUDA
- * toolkit) and is therefore available under -nocudainc. If a probed LLVM
- * version lacks it, fall back to plain extern declarations — parse-only
- * equivalence is all the spike needs.
- */
+/* Builtin vars + device intrinsics for parse-only kernel bodies. */
 #ifndef SPIKE_DEVICE_LAUNCH_PARAMETERS_H
 #define SPIKE_DEVICE_LAUNCH_PARAMETERS_H
 

@@ -1,13 +1,4 @@
-/* Spike-local copy of the sst_hg_cuda ABI (CUDA_PLAN.md §3). The canonical
- * copy lands as hgcc_include/libraries/hg_cuda.h in Phase 2; this one exists
- * so the hand-written rewriter output and the stub runtime can vet that the
- * signatures compile and link as plain C++.
- *
- * All calls forward to the active Mercury OS thread, like ComputeAPI
- * (mercury/libraries/compute/compute_api.h). Async ops enqueue and return;
- * *_sync blocks the calling virtual thread; default stream (NULL) follows
- * legacy synchronizing semantics. All state is per-rank.
- */
+/* Spike copy of sst_hg_cuda ABI for compile/link vetting. */
 #ifndef SST_HG_CUDA_H
 #define SST_HG_CUDA_H
 
@@ -29,8 +20,6 @@ void  sst_hg_cuda_launch(const char* kernelName,
                          uint32_t gx, uint32_t gy, uint32_t gz,
                          uint32_t bx, uint32_t by, uint32_t bz,
                          uint64_t shmemBytes, void* stream,
-                         /* per-thread costs; the model may override via the
-                            calibration table (CUDA_PLAN.md §4.1): */
                          uint64_t flops, uint64_t intops,
                          uint64_t bytesRead, uint64_t bytesWritten);
 void* sst_hg_cuda_stream_create(void);

@@ -22,9 +22,7 @@ Questions? Contact sst-macro-help@sandia.gov
 using namespace clang;
 
 namespace {
-/* Costs outlive the pragma objects: activate() runs in the first pass, the
- * launch rewrite reads them in the main pass. Keyed by canonical decl (a kernel
- * may be redeclared) and by launch statement. */
+/* First-pass costs keyed by canonical decl and launch stmt. */
 std::map<const Decl*, GpuComputeCost> g_declCosts;
 std::map<const Stmt*, GpuComputeCost> g_stmtCosts;
 
@@ -79,9 +77,7 @@ const GpuComputeCost* SSTGpuComputePragma::costForStmt(const Stmt* s)
   return it == g_stmtCosts.end() ? nullptr : &it->second;
 }
 
-// Active in every mode: the launch rewrite (TraverseCUDAKernelCallExpr) reads
-// these costs in any CUDA build, including the default ENCAPSULATE mode, so the
-// pragma must record them there too -- not only under skeletonize.
+// Register in all modes: launch rewrite reads costs under ENCAPSULATE too.
 static PragmaRegister<SSTArgMapPragmaShim, SSTGpuComputePragma, true>
     gpuComputePragma("sst", "gpu_compute",
                      modes::ENCAPSULATE | modes::MEMOIZE | modes::SKELETONIZE

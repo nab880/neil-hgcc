@@ -1,10 +1,4 @@
-// Phase 3 acceptance test: the CUDA_PLAN §1 use case in miniature. Each rank
-// runs a stencil kernel on a stream and exchanges a halo slab with its ring
-// neighbors straight from device memory (GPUDirect-style MPI_Sendrecv). The
-// kernel on its stream overlaps the exchange. With gpu_direct off, the device
-// send/recv buffers are staged through host memory over PCIe (a cost on the
-// critical path); with it on, they are not -- so run_test_cuda_mpi_halo.sh
-// sweeps gpu_direct and asserts the time-to-solution drops when it is on.
+// CUDA halo exchange with stencil/comms overlap; gpu_direct toggles PCIe staging.
 
 #define ssthg_app_name test_cuda_mpi_halo
 #include <skeleton.h>
@@ -23,7 +17,7 @@ int main(int argc, char** argv) {
   MPI_Comm_size(MPI_COMM_WORLD, &size);
 
   const int n = 1 << 18, t = 256, b = (n + t - 1) / t;
-  const int halo = 1024; // floats exchanged per neighbor
+  const int halo = 1024;
   float *u, *sendbuf, *recvbuf;
   cudaMalloc((void**)&u, n * sizeof(float));
   cudaMalloc((void**)&sendbuf, halo * sizeof(float));
@@ -36,9 +30,7 @@ int main(int argc, char** argv) {
 
   const int nsteps = 10;
   for (int step = 0; step < nsteps; ++step) {
-    // Interior compute on a stream -- overlaps the exchange below.
     stencil<<<b, t, 0, s>>>(u);
-    // Halo exchange from device buffers (GPUDirect-style).
     MPI_Sendrecv(sendbuf, halo, MPI_FLOAT, right, 0,
                  recvbuf, halo, MPI_FLOAT, left,  0,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);

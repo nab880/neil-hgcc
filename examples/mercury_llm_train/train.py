@@ -34,11 +34,23 @@ if __name__ == "__main__":
     # are read by the skeleton itself from the environment; run.sh sweeps them.
     nranks = int(os.environ.get("NRANKS", "4"))
 
-    # GPU model knobs default to an A100-class node (fp16 tensor peak, HBM2e) but
-    # are overridable from the environment for a sensitivity study of how the
-    # compute-bound step-time floor moves with the modeled hardware assumptions.
-    gpu_flops = os.environ.get("GPU_PEAK_FLOPS", "3.0e14")
-    gpu_bw    = os.environ.get("GPU_MEM_BW", "2000GB/s")
+    # GPU model knobs default to an A100-class node. The compute model is a dual
+    # roofline (WS1-1a): the GEMM kernels run on the tensor cores (fp16/bf16 peak,
+    # gpu_tensor_peak_flops) while the elementwise kernels run on the CUDA cores
+    # (fp32 peak, gpu_peak_flops); wave/tile quantization (WS1-1b, gpu_sm_count)
+    # charges the ceil(blocks/SMs) underutilization the smooth roofline misses.
+    # All are env-overridable for the sensitivity study -- note the GEMM compute
+    # floor now moves with GPU_TENSOR_PEAK_FLOPS, not GPU_PEAK_FLOPS.
+    gpu_flops        = os.environ.get("GPU_PEAK_FLOPS", "1.95e13")   # A100 fp32
+    gpu_tensor_flops = os.environ.get("GPU_TENSOR_PEAK_FLOPS", "3.12e14")  # A100 bf16 TC
+    gpu_bw           = os.environ.get("GPU_MEM_BW", "2000GB/s")
+    gpu_sm_count     = os.environ.get("GPU_SM_COUNT", "108")         # A100, 0 = off
+    # The matmul-class kernels charged at the tensor peak (mangled names).
+    tensor_kernels = ",".join([
+        "_Z8qkv_projPKfS0_Pfi", "_Z11attn_scoresPKfS0_Pfi",
+        "_Z7attn_avPKfS0_Pfi",  "_Z8attn_outPKfS0_Pfi",
+        "_Z6mlp_upPKfS0_Pfi",   "_Z8mlp_downPKfS0_Pfi",
+    ])
 
     params = {
         "app1.name": "mercury_llm_train",
@@ -47,7 +59,11 @@ if __name__ == "__main__":
         "app1.libraries": ["gpulibrary:GpuLibrary",
                             "computelibrary:ComputeLibrary",
                             "mask_mpi:MpiApi", ],
-        "app1.gpu_peak_flops":    gpu_flops,
+        "app1.gpu_peak_flops":        gpu_flops,
+        "app1.gpu_tensor_peak_flops": gpu_tensor_flops,
+        "app1.gpu_tensor_kernels":    tensor_kernels,
+        "app1.gpu_sm_count":          gpu_sm_count,
+        "app1.gpu_max_threads_per_sm": "2048",
         "app1.gpu_mem_bandwidth": gpu_bw,
         "app1.pcie_bandwidth":    "32GB/s",
         "app1.pcie_latency":      "1us",

@@ -38,6 +38,16 @@ if __name__ == "__main__":
     }
     if os.environ.get("GPU_KERNEL_TIMES"):
         params["app1.gpu_kernel_times"] = os.environ["GPU_KERNEL_TIMES"]
+    # Wave-quantization knob (WS1-1b): 0 (default) = smooth roofline; a nonzero
+    # SM count enables the ceil(blocks/concurrent) penalty.
+    if os.environ.get("GPU_SM_COUNT"):
+        params["app1.gpu_sm_count"] = os.environ["GPU_SM_COUNT"]
+    # Dual-roofline knobs (WS1-1a): a tensor-core peak and the set of kernels
+    # (mangled names) charged against it instead of the CUDA-core peak.
+    if os.environ.get("GPU_TENSOR_PEAK_FLOPS"):
+        params["app1.gpu_tensor_peak_flops"] = os.environ["GPU_TENSOR_PEAK_FLOPS"]
+    if os.environ.get("GPU_TENSOR_KERNELS"):
+        params["app1.gpu_tensor_kernels"] = os.environ["GPU_TENSOR_KERNELS"]
     platform.addParamSet("operating_system", params)
 
     topo = topoSingle()

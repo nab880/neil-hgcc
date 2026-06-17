@@ -1202,6 +1202,8 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
 
   std::string kernelName = mangleKernelName(kernel);
 
+  // <<<grid, block, shmem, stream>>>: the config is a cudaConfigureCall whose
+  // args are grid, block, and optionally shared-mem and stream (defaulted to 0).
   CallExpr* cfg = expr->getConfig();
   auto cfgArg = [&](unsigned i, const char* dflt) -> std::string {
     if (!cfg || i >= cfg->getNumArgs()) return dflt;

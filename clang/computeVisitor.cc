@@ -288,6 +288,7 @@ ComputeVisitor::visitBodyArraySubscriptExpr(ArraySubscriptExpr* expr, Loop::Body
   if (newAccess){
     TypeInfo ti = CompilerGlobals::CI().getASTContext().getTypeInfo(expr->getType());
 
+    //fails data flow check OR first access
     if (isLHS) body.writeBytes += ti.Width / 8;
     else       body.readBytes += ti.Width / 8;
   }
@@ -658,6 +659,8 @@ ComputeVisitor::setContext(Stmt* stmt){
 void
 ComputeVisitor::emitCostAccumulation(std::ostream& os, Loop& loop)
 {
+  // Emit F/I/R/W accumulators over the (possibly nested) loop tree; factored from
+  // replaceStmt so CUDA launch rewrite can reuse without sst_hg_compute_detailed.
   os << "uint64_t flops=0; uint64_t readBytes=0; uint64_t writeBytes=0; uint64_t intops=0; ";
   addLoopContribution(os, loop);
 }

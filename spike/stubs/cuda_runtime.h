@@ -36,6 +36,7 @@ const char* cudaGetErrorString(cudaError_t error);
 
 } /* extern "C" */
 
+/* Launch-config hooks (C++ default args, outside block above); Sema resolves one for CUDAKernelCallExpr. */
 extern "C" cudaError_t cudaConfigureCall(dim3 gridDim, dim3 blockDim,
                                          size_t sharedMem = 0,
                                          cudaStream_t stream = 0);

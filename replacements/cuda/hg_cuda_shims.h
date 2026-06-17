@@ -1,4 +1,4 @@
-/* Launch-config hooks Sema needs for <<<>>>; rewriter lowers launches. */
+/* Launch-config hooks (C++ default args); Sema resolves one for CUDAKernelCallExpr. */
 #ifndef HGCC_CUDA_SHIMS_H
 #define HGCC_CUDA_SHIMS_H
 

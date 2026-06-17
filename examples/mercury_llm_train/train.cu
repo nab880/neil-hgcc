@@ -47,6 +47,9 @@ __global__ void gelu(const float* x, float* y, int n) {
 
 static inline int grid_for(int threads, int block) { return (threads + block - 1) / block; }
 
+// One transformer layer's forward kernels on the compute stream. d is a single
+// device scratch cookie -- contents are never read (model don't execute), only
+// the launch dimensions (the thread count) and the pinned costs matter.
 static void forward_layer(float* d, cudaStream_t s) {
   const int blk = 256;
   layernorm   <<<grid_for(T * H,       blk), blk, 0, s>>>(d, d, T * H);
@@ -77,6 +80,10 @@ int main(int argc, char** argv) {
   const bool gpu_direct = !gd || gd[0] == 't' || gd[0] == '1';
   const char* ov = getenv("LLM_OVERLAP");
   const bool overlap = !ov || ov[0] == '1' || ov[0] == 't';
+  // LAYERS overrides the transformer depth (default L). A lighter per-step
+  // "timing skeleton" for scaling sweeps: fewer layers = fewer collectives, same
+  // communication pattern, so large-NRANKS runs cost proportionally less
+  // wall-clock without changing what is being studied.
   int layers = getenv("LAYERS") ? atoi(getenv("LAYERS")) : L;
   if (layers < 1) layers = 1;
   if (layers > 64) layers = 64;

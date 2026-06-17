@@ -80,6 +80,8 @@ int main(int argc, char** argv) {
     if (size > 1)
       MPI_Alltoallv(NULL, sendcounts, sdispls, MPI_FLOAT,
                     NULL, recvcounts, rdispls, MPI_FLOAT, MPI_COMM_WORLD);
+    // Expert FFN on received tokens (routing-skewed load). Threads = tokens*FF / tokens*H;
+    // block counts use long arithmetic because a hot expert can exceed 32 bits.
     const int blk = 256;
     for (int p = 0; p < passes; ++p) {
       long up_threads   = recv_tokens * (long)FF;

@@ -38,6 +38,8 @@ if __name__ == "__main__":
     gpu_flops        = os.environ.get("GPU_PEAK_FLOPS", "1.95e13")       # A100 fp32
     gpu_tensor_flops = os.environ.get("GPU_TENSOR_PEAK_FLOPS", "3.12e14") # A100 bf16 TC
     gpu_sm_count     = os.environ.get("GPU_SM_COUNT", "108")             # A100, 0 = off
+    gpu_mem_capacity = os.environ.get("GPU_MEM", "80GB")                 # A100-80GB; 0B = off
+    gpu_mem_fatal    = os.environ.get("GPU_MEM_FATAL", "false")          # warn-only by default
 
     params = {
         "app1.name": "mercury_3d",
@@ -50,6 +52,8 @@ if __name__ == "__main__":
         "app1.gpu_tensor_peak_flops":  gpu_tensor_flops,
         "app1.gpu_tensor_kernels":     "_Z4gemmPKfS0_Pfi",
         "app1.gpu_sm_count":           gpu_sm_count,
+        "app1.gpu_mem_capacity":       gpu_mem_capacity,
+        "app1.gpu_mem_fatal":          gpu_mem_fatal,
         "app1.gpu_max_threads_per_sm": "2048",
         "app1.gpu_mem_bandwidth": "2000GB/s",
         "app1.pcie_bandwidth":    "32GB/s",

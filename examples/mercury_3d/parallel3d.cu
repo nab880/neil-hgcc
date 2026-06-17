@@ -116,6 +116,23 @@ int main(int argc, char** argv) {
   cudaStream_t s;
   cudaStreamCreate(&s);
 
+  // Persistent per-rank training footprint as device cookies (no real memory) so
+  // the GPU library's high-water reports what this config needs; mirrors
+  // capacity.py. ZERO shards opt(1)/+grad(2)/+weight(3) over the DP group.
+  const int zero  = getenv("ZERO")  ? atoi(getenv("ZERO"))  : 0;
+  const long dbytes = getenv("DTYPE") ? atol(getenv("DTYPE")) : 2;   // bf16 default
+  const long prank = (long)grad_elems;                              // params/rank (TP,PP sharded)
+  const long wd = zero >= 3 ? dp_size : 1;
+  const long gd = zero >= 2 ? dp_size : 1;
+  const long od = zero >= 1 ? dp_size : 1;
+  float *w = nullptr, *g = nullptr, *opt = nullptr, *act = nullptr, *tr = nullptr;
+  cudaMalloc((void**)&w,   (size_t)(prank * dbytes / wd));
+  cudaMalloc((void**)&g,   (size_t)(prank * dbytes / gd));
+  cudaMalloc((void**)&opt, (size_t)(prank * 12 / od));             // fp32 master+m+v
+  cudaMalloc((void**)&act, (size_t)(5L * T * H * dbytes / tp_size * nlayers)); // 1F1B, selective ckpt
+  if (zero >= 3) cudaMalloc((void**)&tr, (size_t)(12L * H * H * dbytes)); // transient all-gather
+  (void)w; (void)g; (void)opt; (void)act; (void)tr;
+
   // Forward GPipe over the pipeline stages.
   for (int m = 0; m < M; ++m) {
     if (pp_rank > 0)

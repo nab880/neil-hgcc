@@ -134,6 +134,41 @@ is exactly the deployment rule the big-model training stacks follow.
   parallelism, the cheaper data parallelism gets. The factorization is a single
   joint optimization, which is exactly why this is run as one combined sweep.
 
+## Contention & algorithm study (WS2-2d)
+
+`factorization_sweep.sh` sweeps every DP×PP×TP factorization of a fixed GPU budget
+N and finds the fastest, on a single crossbar (no contention — the control) and on
+the fat-tree (real packet contention), for both all-reduce algorithms
+(recursive-doubling and `SUMI_ALLREDUCE_ALG=ring`). It asks whether the network
+chooses the parallelization.
+
+Result (N=16, LAYERS=2, MICROBATCH=8; compute-bound 50 GB/s and comms-bound 12 GB/s):
+
+| config | optimum (50 GB/s) | optimum (12 GB/s) |
+|--------|-------------------|-------------------|
+| crossbar, recursive-doubling | DP4×PP2×TP2 | DP4×PP2×TP2 |
+| fat-tree, recursive-doubling | DP4×PP2×TP2 | DP4×PP2×TP2 |
+| fat-tree, ring               | DP4×PP2×TP2 | DP4×PP2×TP2 |
+
+Two findings:
+
+1. **The optimum is contention-robust.** The balanced, comms-light DP4×PP2×TP2 wins
+   under *every* topology × algorithm × bandwidth combination. It already minimises
+   contended traffic (small DP gradient + small TP activation all-reduce), so it is
+   insensitive to how the fabric handles large messages.
+2. **Contention and the algorithm reshape the *penalty landscape*, not the peak.**
+   The comms-heavy factorizations are punished far more on the fat-tree under ring —
+   at 12 GB/s, pure-TP (1×1×16) 390→684 ms (+75%) and pure-DP (16×1×1) 268→406 ms
+   (+51%) — while recursive-doubling stays within ~2% of the crossbar. Ring is much
+   more contention-sensitive than recursive-doubling.
+
+This is exactly what an analytical (no-contention) model gets wrong: it would
+under-cost the comms-heavy configurations and be blind to the algorithm×topology
+interaction. The robustness of the optimum *and* the steep, fabric-dependent cost
+of a poor choice are both packet-level results. (A scale at which the optimum
+itself shifts is plausible at larger N / lower bandwidth — `N=32 sh
+factorization_sweep.sh` — but is heavier to run on one host.)
+
 ## Accuracy note
 
 Same as the prior demos: GEMM times are roofline estimates from a pinned flop

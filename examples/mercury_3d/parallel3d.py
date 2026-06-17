@@ -32,6 +32,13 @@ if __name__ == "__main__":
     # skeleton (DP_SIZE = nranks / (TP*PP)); run.sh sweeps the factorization.
     nranks = int(os.environ.get("NRANKS", "8"))
 
+    # A100 dual-roofline + wave-quant compute model (WS1), matching mercury_llm_train.
+    # The single sharded GEMM kernel runs on the tensor cores; act_norm is the
+    # memory-bound CUDA-core path. All env-overridable.
+    gpu_flops        = os.environ.get("GPU_PEAK_FLOPS", "1.95e13")       # A100 fp32
+    gpu_tensor_flops = os.environ.get("GPU_TENSOR_PEAK_FLOPS", "3.12e14") # A100 bf16 TC
+    gpu_sm_count     = os.environ.get("GPU_SM_COUNT", "108")             # A100, 0 = off
+
     params = {
         "app1.name": "mercury_3d",
         "app1.exe_library_name": "mercury_3d",
@@ -39,7 +46,11 @@ if __name__ == "__main__":
         "app1.libraries": ["gpulibrary:GpuLibrary",
                             "computelibrary:ComputeLibrary",
                             "mask_mpi:MpiApi", ],
-        "app1.gpu_peak_flops":    "3.0e14",
+        "app1.gpu_peak_flops":         gpu_flops,
+        "app1.gpu_tensor_peak_flops":  gpu_tensor_flops,
+        "app1.gpu_tensor_kernels":     "_Z4gemmPKfS0_Pfi",
+        "app1.gpu_sm_count":           gpu_sm_count,
+        "app1.gpu_max_threads_per_sm": "2048",
         "app1.gpu_mem_bandwidth": "2000GB/s",
         "app1.pcie_bandwidth":    "32GB/s",
         "app1.pcie_latency":      "1us",

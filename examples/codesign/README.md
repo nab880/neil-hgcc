@@ -77,6 +77,37 @@ Defaults `base=0.55, k_cap=0.30, k_net=0.15` are illustrative — the point is t
 of the frontier and its robustness, not a dollar figure, so `pareto.py` sweeps the
 coefficients and reports sensitivity.
 
+## Results (first pass, full grid, `SIM_LAYERS=8` timing skeleton)
+
+324 fleet configs, **68 on the Pareto front** (`frontier.csv`, `frontier.png`).
+
+1. **Capacity sets a discrete decode-latency tier** (the headline). The inference pool's
+   HBM capacity fixes the lowest feasible TP, which fixes latency:
+
+   | inference HBM | forced TP | decode latency | fleet serving tput |
+   |---------------|-----------|----------------|--------------------|
+   | 80 GB | ≥4 | 3.36 ms | 38–72 k tok/s |
+   | 160 GB | ≥2 | 1.93 ms | 0.13–0.25 M tok/s |
+   | 320 GB | 1 | 0.49 ms | 1.0–2.0 M tok/s |
+
+   6.8× latency / ~27× throughput, entirely from capacity — HBM bandwidth never enters.
+   The three latency bands are the three vertical bands in `frontier.png`.
+
+2. **Differentiated hardware expands the frontier above the cost floor.** 27/36 uniform
+   fleets are dominated by a differentiated one (robust across the ±2× cost-coefficient
+   sweep: 24–28). The 9 survivors are all the single *cheapest* fleet (min capacity, min
+   network, both pools) — nothing dominates the minimum-hardware corner because nothing is
+   cheaper. So the claim is *not* "uniform is always interior" but the sharper "buying
+   network for training and capacity for serving beats buying the same everywhere, except
+   at the cost floor."
+
+3. **The split N_t:N_i slides along the frontier**, trading training throughput (more
+   training GPUs) for serving throughput (more inference replicas).
+
+These are the `SIM_LAYERS=8` skeleton magnitudes; the frontier *shape* and rankings are
+layer-count-invariant. Re-run `FULL=1 ./sweep_train.sh` (defaults to `SIM_LAYERS=64`) for
+exact step-time magnitudes.
+
 ## Extension (not in this scaffold)
 
 Long-context **prefill** served by context parallelism (study J, `mercury_context`) would

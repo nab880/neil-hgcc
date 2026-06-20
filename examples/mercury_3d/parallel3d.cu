@@ -68,8 +68,8 @@ int main(int argc, char** argv) {
   const int M_global = getenv("MICROBATCH") ? atoi(getenv("MICROBATCH")) : 4;
   const int M = (M_global / dp_size) > 0 ? M_global / dp_size : 1;
 
+  MPI_Comm tp_comm, dp_comm;
   MPI_Comm_split(MPI_COMM_WORLD, dp_rank * pp_size + pp_rank, tp_rank, &tp_comm);
-  MPI_Comm dp_comm;
   MPI_Comm_split(MPI_COMM_WORLD, pp_rank * tp_size + tp_rank, dp_rank, &dp_comm);
   const int prev = rank - tp_size;
   const int next = rank + tp_size;

@@ -223,7 +223,7 @@ def main():
         fig.colorbar(sc, label="fleet cost")
         ax.legend()
         fig.tight_layout()
-        out_png = os.path.join(here, "frontier.png")
+        out_png = os.path.splitext(a.out)[0] + ".png"   # frontier.csv -> frontier.png
         fig.savefig(out_png, dpi=130)
         print(f"# wrote {out_png}")
 

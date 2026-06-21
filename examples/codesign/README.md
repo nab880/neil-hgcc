@@ -77,36 +77,41 @@ Defaults `base=0.55, k_cap=0.30, k_net=0.15` are illustrative — the point is t
 of the frontier and its robustness, not a dollar figure, so `pareto.py` sweeps the
 coefficients and reports sensitivity.
 
-## Results (first pass, full grid, `SIM_LAYERS=8` timing skeleton)
+## Results (full grid, `SIM_LAYERS=64` — the model's true depth)
 
-324 fleet configs, **68 on the Pareto front** (`frontier.csv`, `frontier.png`).
+324 fleet configs, **23 on the Pareto front** (`frontier_L64.csv`, `frontier_L64.png`).
+The first pass at `SIM_LAYERS=8` (kept as `*_L8.*`) gave the right *serving* story but a
+*wrong* training one — see the depth caveat below.
 
-1. **Capacity sets a discrete decode-latency tier** (the headline). The inference pool's
-   HBM capacity fixes the lowest feasible TP, which fixes latency:
+1. **Capacity sets a discrete decode-latency tier** (the headline, unchanged). The
+   inference pool's HBM capacity fixes the lowest feasible TP, which fixes latency:
 
-   | inference HBM | forced TP | decode latency | fleet serving tput |
-   |---------------|-----------|----------------|--------------------|
-   | 80 GB | ≥4 | 3.36 ms | 38–72 k tok/s |
-   | 160 GB | ≥2 | 1.93 ms | 0.13–0.25 M tok/s |
-   | 320 GB | 1 | 0.49 ms | 1.0–2.0 M tok/s |
+   | inference HBM | forced TP | decode latency (L=64) | fleet serving tput |
+   |---------------|-----------|-----------------------|--------------------|
+   | 80 GB | ≥4 | 26.8 ms | 38–72 k tok/s |
+   | 160 GB | ≥2 | 15.4 ms | 0.13–0.25 M tok/s |
+   | 320 GB | 1 | 3.9 ms | 1.0–2.0 M tok/s |
 
    6.8× latency / ~27× throughput, entirely from capacity — HBM bandwidth never enters.
-   The three latency bands are the three vertical bands in `frontier.png`.
+   Decode scales *exactly* 8× from L=8→L=64, so the skeleton was faithful for inference.
 
-2. **Differentiated hardware expands the frontier above the cost floor.** 27/36 uniform
-   fleets are dominated by a differentiated one (robust across the ±2× cost-coefficient
-   sweep: 24–28). The 9 survivors are all the single *cheapest* fleet (min capacity, min
-   network, both pools) — nothing dominates the minimum-hardware corner because nothing is
-   cheaper. So the claim is *not* "uniform is always interior" but the sharper "buying
-   network for training and capacity for serving beats buying the same everywhere, except
-   at the cost floor."
+2. **Differentiation is one-sided: serving buys capacity, training stays cheap.** At true
+   depth the throughput-optimal training layout is **pure DP**, and the gradient all-reduce
+   **hides completely under 64-layer backward compute** — the best layout is identical at
+   50/150/600 GB/s. So **all 23 Pareto fleets buy the cheapest training hardware**
+   (80GB/50, robust across ±2× cost coeffs); training throughput scales *linearly with the
+   split* (`train_tput = 2.55·N_t`), bought with GPU allocation, not fabric. 32/36 uniform
+   fleets are dominated; the 4 survivors are the cheapest fleet per split.
 
-3. **The split N_t:N_i slides along the frontier**, trading training throughput (more
-   training GPUs) for serving throughput (more inference replicas).
+3. **Depth caveat (a flipped conclusion).** The L=8 skeleton put faster *training* networks
+   on the frontier — an artifact: 8 layers is too little compute to hide the all-reduce, so
+   network appeared to bind. At L=64 it hides. Decode scaled perfectly with depth; training
+   did not. **Network-bound training returns** only when per-rank tokens shrink (strong
+   scaling) or the model is large enough to exceed the memory wall (study G) and *must*
+   shard with TP/PP/FSDP, whose comms is on the critical path (study H) and cannot hide. A
+   13B model still fits under pure DP, which is *why* the training pool is cheap here.
 
-These are the `SIM_LAYERS=8` skeleton magnitudes; the frontier *shape* and rankings are
-layer-count-invariant. Re-run `FULL=1 ./sweep_train.sh` (defaults to `SIM_LAYERS=64`) for
-exact step-time magnitudes.
+Re-run any depth with `SIM_LAYERS=<n>`; `*_L8.*` vs `*_L64.*` files show the difference.
 
 ## Extension (not in this scaffold)
 

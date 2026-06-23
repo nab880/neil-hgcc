@@ -74,8 +74,9 @@ int main(int argc, char** argv) {
   const int prev = rank - tp_size;
   const int next = rank + tp_size;
 
-  // DP gradient sharded 1/TP per layer -> 12 H^2 elems/layer/TP.
-  const int grad_elems = layers_here * (12 * H / tp_size) * H;
+  // DP gradient sharded 1/TP per layer -> 12 H^2 elems/layer/TP. long: at L>=16 the
+  // aggregate exceeds 2^31 and would overflow int (zeroing the all-reduce entirely).
+  const long grad_elems = (long)layers_here * (12 * H / tp_size) * H;
 
   float* d = nullptr;
   cudaMalloc((void**)&d, (size_t)T * H * sizeof(float));
@@ -114,9 +115,9 @@ int main(int argc, char** argv) {
 
   // DP gradient all-reduce in fixed-size buckets (keeps counts inside 32-bit limits).
   if (dp_size > 1) {
-    const int GRAD_CHUNK = 64 * 1024 * 1024;
-    for (int off = 0; off < grad_elems; off += GRAD_CHUNK) {
-      int chunk = grad_elems - off < GRAD_CHUNK ? grad_elems - off : GRAD_CHUNK;
+    const long GRAD_CHUNK = 256L * 1024 * 1024;   // 1GB/chunk: <2^31 BYTES (4*floats); fewer chunks = faster sim
+    for (long off = 0; off < grad_elems; off += GRAD_CHUNK) {
+      int chunk = (int)(grad_elems - off < GRAD_CHUNK ? grad_elems - off : GRAD_CHUNK);
       MPI_Request grad_req;
       MPI_Iallreduce(NULL, NULL, chunk, MPI_FLOAT, MPI_SUM, dp_comm, &grad_req);
       MPI_Wait(&grad_req, MPI_STATUS_IGNORE);

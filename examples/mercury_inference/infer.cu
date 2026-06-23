@@ -52,6 +52,21 @@ __global__ void gelu(const float* x, float* y, int n) {
 
 static inline int grid_for(int threads, int block) { return (threads + block - 1) / block; }
 
+// Bucket a NULL-buffer point-to-point transfer of `count` MPI_FLOATs into chunks that fit
+// the simulator's 32-bit BYTE counter (the full KV cache exceeds 2^31 at large L/S/B; the
+// chunk is 1GB = <2^31 bytes). Posts non-blocking ops into reqs[]; returns how many. Both
+// peers compute count identically, so the chunk decompositions match.
+static int post_kv(int isend, long count, int peer, int tag, MPI_Request* reqs) {
+  const long CH = 256L * 1024 * 1024;
+  int n = 0;
+  for (long off = 0; off < count; off += CH) {
+    int cc = (int)(count - off < CH ? count - off : CH);
+    if (isend) MPI_Isend(NULL, cc, MPI_FLOAT, peer, tag, MPI_COMM_WORLD, &reqs[n++]);
+    else       MPI_Irecv(NULL, cc, MPI_FLOAT, peer, tag, MPI_COMM_WORLD, &reqs[n++]);
+  }
+  return n;
+}
+
 // Prefill: one forward pass over the whole prompt (S tokens), sharded by decode TP.
 // Attention is quadratic in S -- this is the compute-heavy phase.
 static void prefill_layer(float* d, cudaStream_t s, int S, int tp) {
@@ -132,18 +147,20 @@ int main(int argc, char** argv) {
       for (int l = 0; l < nlayers; ++l) prefill_layer(d, s, S, 1);
       cudaStreamSynchronize(s);
       int dst = P + (rank % (Dn > 0 ? Dn : 1));      // paired decode rank
-      MPI_Send(NULL, kv_floats, MPI_FLOAT, dst, r, MPI_COMM_WORLD);
+      MPI_Request sreqs[1024];
+      int ns = post_kv(1, kv_floats, dst, r, sreqs);
+      MPI_Waitall(ns, sreqs, MPI_STATUSES_IGNORE);
     } else {
       // Prefetch this request's KV while the previous request still decodes -> the
       // bulk transfer contends with decode's TP all-reduces on the fabric.
       int src = rank - P;
       bool recv = src < P;
-      MPI_Request kvreq;
-      if (recv) MPI_Irecv(NULL, kv_floats, MPI_FLOAT, src, r, MPI_COMM_WORLD, &kvreq);
+      MPI_Request kvreqs[1024]; int nkv = 0;
+      if (recv) nkv = post_kv(0, kv_floats, src, r, kvreqs);
       for (int t = 0; t < steps; ++t)
         for (int l = 0; l < nlayers; ++l)
           decode_layer(d, s, pool, Dn, B, S + t);
-      if (recv) MPI_Wait(&kvreq, MPI_STATUS_IGNORE);
+      if (recv) MPI_Waitall(nkv, kvreqs, MPI_STATUSES_IGNORE);
     }
   }
   cudaDeviceSynchronize();

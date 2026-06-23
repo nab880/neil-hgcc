@@ -60,6 +60,20 @@ __global__ void gelu(const float* x, float* y, int n) {
 // Block counts use long arithmetic: at long context BQ*BQ and BQ*FF exceed 32 bits.
 static inline int grid_l(long threads, int block) { return (int)((threads + block - 1) / block); }
 
+// Bucket a NULL-buffer transfer of `count` MPI_FLOATs into chunks that fit the simulator's
+// 32-bit BYTE counter (a K/V block exceeds 2^31 bytes past ~2M-token contexts; the chunk is
+// 1GB). Posts non-blocking ops into reqs[]; returns how many. Both ring neighbours match.
+static int post_blk(int isend, long count, int peer, int tag, MPI_Request* reqs) {
+  const long CH = 256L * 1024 * 1024;
+  int n = 0;
+  for (long off = 0; off < count; off += CH) {
+    int cc = (int)(count - off < CH ? count - off : CH);
+    if (isend) MPI_Isend(NULL, cc, MPI_FLOAT, peer, tag, MPI_COMM_WORLD, &reqs[n++]);
+    else       MPI_Irecv(NULL, cc, MPI_FLOAT, peer, tag, MPI_COMM_WORLD, &reqs[n++]);
+  }
+  return n;
+}
+
 int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);
   int rank = 0, size = 1;
@@ -110,13 +124,13 @@ int main(int argc, char** argv) {
     // ring. After N steps every query has attended to all S keys. With overlap the
     // next block's transfer is issued before the step's compute and waited after, so
     // it hides behind compute; without it the exchange is exposed between steps.
-    MPI_Request rreq, sreq;
+    MPI_Request rreq[64], sreq[64]; int nr = 0, ns = 0;
     for (int r = 0; r < N; ++r) {
       const bool last = (r == N - 1);
       const int tag = l * N + r;
       if (overlap && !last) {
-        MPI_Irecv(NULL, kv_floats, MPI_FLOAT, left,  tag, MPI_COMM_WORLD, &rreq);
-        MPI_Isend(NULL, kv_floats, MPI_FLOAT, right, tag, MPI_COMM_WORLD, &sreq);
+        nr = post_blk(0, kv_floats, left,  tag, rreq);
+        ns = post_blk(1, kv_floats, right, tag, sreq);
       }
       const long scores = BQ * BQ;          // score matrix: quadratic in the block
       attn_scores <<<grid_l(scores, blk), blk, 0, s>>>(d, d, d, bq);
@@ -125,12 +139,16 @@ int main(int argc, char** argv) {
       cudaStreamSynchronize(s);
       if (!last) {
         if (overlap) {
-          MPI_Wait(&rreq, MPI_STATUS_IGNORE);
-          MPI_Wait(&sreq, MPI_STATUS_IGNORE);
+          MPI_Waitall(nr, rreq, MPI_STATUSES_IGNORE);
+          MPI_Waitall(ns, sreq, MPI_STATUSES_IGNORE);
         } else {                            // exposed: blocking rotate after compute
-          MPI_Sendrecv(NULL, kv_floats, MPI_FLOAT, right, tag,
-                       NULL, kv_floats, MPI_FLOAT, left,  tag,
-                       MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+          const long CH = 256L * 1024 * 1024;
+          for (long off = 0; off < kv_floats; off += CH) {
+            int cc = (int)(kv_floats - off < CH ? kv_floats - off : CH);
+            MPI_Sendrecv(NULL, cc, MPI_FLOAT, right, tag,
+                         NULL, cc, MPI_FLOAT, left,  tag,
+                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+          }
         }
       }
     }

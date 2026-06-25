@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
 
   // DP gradient all-reduce in fixed-size buckets (keeps counts inside 32-bit limits).
   if (dp_size > 1) {
-    const long GRAD_CHUNK = 256L * 1024 * 1024;   // 1GB/chunk: <2^31 BYTES (4*floats); fewer chunks = faster sim
+    const long GRAD_CHUNK = 256L * 1024 * 1024;   // 1GB/chunk, empirically the safe ceiling (1.9GB crashes the NIC)
     for (long off = 0; off < grad_elems; off += GRAD_CHUNK) {
       int chunk = (int)(grad_elems - off < GRAD_CHUNK ? grad_elems - off : GRAD_CHUNK);
       MPI_Request grad_req;

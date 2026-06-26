@@ -112,10 +112,36 @@ def _add_mv2_link(ctx, ldTarget, args, cmds, objects):
     cmds.append([None, stub_cmd, [glibc_stub_o]])
 
   wrappers_o = os.path.join(out_dir, "mv2_mpi_wrappers.o")
-  wrappers_cmd = [
-      ctx.cc, "-fPIC", "-c", support_wrappers,
-      "-I%s" % mpi_inc, "-o", wrappers_o,
-  ]
+  # PROTOTYPE: HGCC_MV2_GEN_WRAPPERS=1 auto-generates the MPI_* wrapper set from
+  # the MVAPICH2 archive instead of hand-maintaining it. gen_symbol_wrappers.py
+  # emits a strong tail-call trampoline for every weak-aliased public MPI symbol
+  # so the set can never be incomplete. The host stubs in mv2_mpi_wrappers.c
+  # (hgcc_gethostname etc.) are real stubs, not aliases, so they cannot be
+  # generated -- we still compile that file, with -DHGCC_MV2_GENERATED_MPI_WRAPPERS
+  # so only the stubs (not the duplicate MPI_* wrappers) are emitted. The
+  # generated trampolines are linked as an extra object. Darwin only (the
+  # dynamic_lookup-bundle hazard this addresses is macOS-specific).
+  gen_wrappers = (os.environ.get("HGCC_MV2_GEN_WRAPPERS") not in (None, "", "0")
+                  and platform.system() == "Darwin")
+  gen_o = None
+  if gen_wrappers:
+    gen_py = os.path.join(os.path.dirname(_mv2SupportDir),
+                          "gen_symbol_wrappers.py")
+    gen_s = os.path.join(out_dir, "mv2_mpi_wrappers_gen.S")
+    gen_o = os.path.join(out_dir, "mv2_mpi_wrappers_gen.o")
+    cmds.append([None, [sys.executable, gen_py, "--archive", libmpi_nopmi,
+                        "--include", r"^_MPI[X]?_", "--out", gen_s, "--quiet"],
+                 [gen_s]])
+    cmds.append([None, [ctx.cc, "-fPIC", "-c", gen_s, "-o", gen_o], [gen_o]])
+    wrappers_cmd = [
+        ctx.cc, "-fPIC", "-c", support_wrappers, "-DHGCC_MV2_GENERATED_MPI_WRAPPERS",
+        "-I%s" % mpi_inc, "-o", wrappers_o,
+    ]
+  else:
+    wrappers_cmd = [
+        ctx.cc, "-fPIC", "-c", support_wrappers,
+        "-I%s" % mpi_inc, "-o", wrappers_o,
+    ]
   cmds.append([None, wrappers_cmd, [wrappers_o]])
 
   is_darwin = (platform.system() == "Darwin")
@@ -130,6 +156,8 @@ def _add_mv2_link(ctx, ldTarget, args, cmds, objects):
         wrappers_o,
         shim_o,
     ]
+    if gen_o:
+      link += [gen_o]
     link += objects
     link += ["-o", ldTarget]
   else:
@@ -150,6 +178,13 @@ def _add_mv2_link(ctx, ldTarget, args, cmds, objects):
     link += objects
     link += ["-o", ldTarget]
   cmds.append([None, link, []])
+
+  # Post-link guard: fail loudly if any weak MPI_* symbol was left unwrapped
+  # (undefined dynamic_lookup + local force_loaded def => binds to garbage at
+  # load on macOS). Runs after the link; nonzero exit aborts the build.
+  checker = os.path.join(_mv2SupportDir, "check_mpi_wrappers.py")
+  if os.path.isfile(checker):
+    cmds.append([None, [sys.executable, checker, ldTarget], []])
 
 
 def _conftest_strip_sst_pmi_link(flags, lib_dirs, libs):

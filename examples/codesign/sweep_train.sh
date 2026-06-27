@@ -57,7 +57,15 @@ fit_zero() {
 # runs ONCE per (Nt,net,layout,alg) and the capacity axis is replayed from capacity.py's
 # per-cap min-ZeRO gate -- a |CAPS|x cut in sim runs, the dominant cost at LAYERS=64.
 CAP_MAX=$(echo $CAPS | tr ' ' '\n' | sort -n | tail -1)
-echo "Nt,cap_gb,net_gbps,TP,PP,DP,zero,alg,t_step_ms,train_tput" > "$OUT"
+
+# Row-level resume: keep an existing CSV and skip any (Nt,net,TP,PP,alg) combo already in
+# it, so a sweep killed mid-split (e.g. machine sleep) resumes exactly where it stopped --
+# even the 9h Nt=64 split banks incrementally. Delete the CSV to force a fresh sweep.
+[ -f "$OUT" ] || echo "Nt,cap_gb,net_gbps,TP,PP,DP,zero,alg,t_step_ms,train_tput" > "$OUT"
+row_done() {   # Nt net TP PP alg -> 0 if a matching row is already present
+  awk -F, -v a="$1" -v b="$2" -v c="$3" -v d="$4" -v e="$5" \
+      '$1==a && $3==b && $4==c && $5==d && $8==e {found=1} END{exit !found}' "$OUT"
+}
 for Nt in $SPLITS; do
  for net in $NETS; do
   for TP in 1 2 4 8; do
@@ -72,6 +80,7 @@ for Nt in $SPLITS; do
     # Algorithm only changes the DP gradient all-reduce; moot when DP=1.
     algs="ring recdouble"; [ "$DP" -gt 1 ] || algs="ring"
     for alg in $algs; do
+      row_done "$Nt" "$net" "$TP" "$PP" "$alg" && continue   # resume: already computed
       # One timing run (ZERO=0; timing is ZeRO-independent), replayed across capacities.
       log=$(cd "$EXAMPLES" && env NRANKS="$Nt" TP_SIZE="$TP" PP_SIZE="$PP" MICROBATCH="$MICRO" \
             LAYERS="$SIM_LAYERS" ZERO=0 LINK_BW="${net}GB/s" GPU_MEM="${CAP_MAX}GB" \

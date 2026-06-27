@@ -28,7 +28,15 @@ mv2supportdir = $(datadir)/hgcc/mv2
 dist_mv2support_DATA = \
   support/mv2/mv2_mpi_wrappers.c \
   support/mv2/mv2_ld_glibc_stub.c \
-  support/mv2/gen_register_shim.py
+  support/mv2/gen_register_shim.py \
+  support/mv2/check_mpi_wrappers.py
+
+# Library-agnostic symbol-wrapper generator (used by the MV2 link path and by
+# the mvapich2 build's generate-once step). Installed one level up, to
+# $(datadir)/hgcc, where hglink looks for it.
+hgccsupportdir = $(datadir)/hgcc
+dist_hgccsupport_DATA = \
+  support/gen_symbol_wrappers.py
 
 if HAVE_CLANG
 

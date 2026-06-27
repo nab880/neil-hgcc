@@ -44,6 +44,14 @@ import sys
 # Match MPI / PMPI / MPIX / PMPIX symbols, with or without the Mach-O leading '_'.
 _MPI_RE = re.compile(r"^_?(P?MPI[X]?_\w+)$")
 
+# Symbols that are intentionally left unwrapped: under Mercury they must resolve
+# to the simulator's clock, not MVAPICH2's PMPI_ (which reads the host wall
+# clock). They legitimately appear as undefined-and-local, so the
+# undefined ∩ local heuristic would otherwise false-positive on them. Keep this
+# list in sync with gen_symbol_wrappers' --exclude and the note in
+# mv2_mpi_wrappers.c.
+_ALLOW_UNWRAPPED = frozenset({"MPI_Wtime", "MPI_Wtick"})
+
 
 def _classify(libpath):
     """Return (undefined, local_defined) sets of MPI symbol base names, or None
@@ -127,7 +135,7 @@ def main(argv):
             "MPI-wrapper check\n" % libpath)
         return 0
     undefined, local_def = result
-    missing = sorted(undefined & local_def)
+    missing = sorted((undefined & local_def) - _ALLOW_UNWRAPPED)
     if not missing:
         return 0
 

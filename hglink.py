@@ -112,27 +112,49 @@ def _add_mv2_link(ctx, ldTarget, args, cmds, objects):
     cmds.append([None, stub_cmd, [glibc_stub_o]])
 
   wrappers_o = os.path.join(out_dir, "mv2_mpi_wrappers.o")
-  # PROTOTYPE: HGCC_MV2_GEN_WRAPPERS=1 auto-generates the MPI_* wrapper set from
-  # the MVAPICH2 archive instead of hand-maintaining it. gen_symbol_wrappers.py
-  # emits a strong tail-call trampoline for every weak-aliased public MPI symbol
-  # so the set can never be incomplete. The host stubs in mv2_mpi_wrappers.c
-  # (hgcc_gethostname etc.) are real stubs, not aliases, so they cannot be
-  # generated -- we still compile that file, with -DHGCC_MV2_GENERATED_MPI_WRAPPERS
-  # so only the stubs (not the duplicate MPI_* wrappers) are emitted. The
-  # generated trampolines are linked as an extra object. Darwin only (the
-  # dynamic_lookup-bundle hazard this addresses is macOS-specific).
-  gen_wrappers = (os.environ.get("HGCC_MV2_GEN_WRAPPERS") not in (None, "", "0")
+  # The MPI_* wrapper set is auto-generated from the MVAPICH2 archive by default
+  # on Darwin: gen_symbol_wrappers.py emits a strong tail-call trampoline for
+  # every weak-aliased public MPI symbol, so the set can never be incomplete
+  # (the old hand-maintained list silently missed symbols and crashed at load --
+  # see check_mpi_wrappers.py). HGCC_MV2_GEN_WRAPPERS=0 falls back to the hand
+  # list in mv2_mpi_wrappers.c. Linux doesn't need this (its --whole-archive +
+  # -Bsymbolic link already binds the weak locals), so it always uses the file.
+  #
+  # The trampoline object is normally produced once at mvapich2 build time, next
+  # to libmpi_nopmi.a (build_all_mac.sh), so app links just consume it with no
+  # nm scan. If that prebuilt object is missing or older than the archive, we
+  # regenerate a per-app copy here as a self-healing fallback.
+  #
+  # The host stubs in mv2_mpi_wrappers.c (hgcc_gethostname etc.) are real stubs,
+  # not aliases, so they can't be generated; in generate mode we still compile
+  # that file with -DHGCC_MV2_GENERATED_MPI_WRAPPERS to emit the stubs only (the
+  # generated trampolines supply the MPI_* symbols).
+  #
+  # MPI_Wtime / MPI_Wtick are excluded: under Mercury they must stay unwrapped so
+  # they resolve to the simulator's clock. A wrapper forwarding to PMPI_Wtime
+  # diverts them to the host wall clock (gettimeofday) and corrupts every
+  # latency/fidelity measurement. They are allow-listed in check_mpi_wrappers.py.
+  gen_wrappers = (os.environ.get("HGCC_MV2_GEN_WRAPPERS") != "0"
                   and platform.system() == "Darwin")
   gen_o = None
   if gen_wrappers:
-    gen_py = os.path.join(os.path.dirname(_mv2SupportDir),
-                          "gen_symbol_wrappers.py")
-    gen_s = os.path.join(out_dir, "mv2_mpi_wrappers_gen.S")
-    gen_o = os.path.join(out_dir, "mv2_mpi_wrappers_gen.o")
-    cmds.append([None, [sys.executable, gen_py, "--archive", libmpi_nopmi,
-                        "--include", r"^_MPI[X]?_", "--out", gen_s, "--quiet"],
-                 [gen_s]])
-    cmds.append([None, [ctx.cc, "-fPIC", "-c", gen_s, "-o", gen_o], [gen_o]])
+    prebuilt_o = os.path.join(mpi_lib, "mv2_mpi_wrappers_gen.o")
+    if (os.path.isfile(prebuilt_o)
+        and os.path.getmtime(prebuilt_o) >= os.path.getmtime(libmpi_nopmi)):
+      # Fast path: link the object generated once at build time.
+      gen_o = prebuilt_o
+    else:
+      # Fallback: regenerate a per-app copy (build step didn't run, or stale).
+      gen_py = os.path.join(os.path.dirname(_mv2SupportDir),
+                            "gen_symbol_wrappers.py")
+      gen_s = os.path.join(out_dir, "mv2_mpi_wrappers_gen.S")
+      gen_o = os.path.join(out_dir, "mv2_mpi_wrappers_gen.o")
+      cmds.append([None, [sys.executable, gen_py, "--archive", libmpi_nopmi,
+                          "--include", r"^_MPI[X]?_",
+                          "--exclude", r"_MPI_Wtime$|_MPI_Wtick$",
+                          "--out", gen_s, "--quiet"],
+                   [gen_s]])
+      cmds.append([None, [ctx.cc, "-fPIC", "-c", gen_s, "-o", gen_o], [gen_o]])
     wrappers_cmd = [
         ctx.cc, "-fPIC", "-c", support_wrappers, "-DHGCC_MV2_GENERATED_MPI_WRAPPERS",
         "-I%s" % mpi_inc, "-o", wrappers_o,

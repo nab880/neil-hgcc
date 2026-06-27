@@ -33,11 +33,13 @@ int hgcc_usleep(unsigned usecs)
  * which are real stubs and cannot be generated from the archive, are kept. */
 #ifndef HGCC_MV2_GENERATED_MPI_WRAPPERS
 
-/* Timers. These are weak PMPI_ aliases too; without strong wrappers they are
- * left as dynamic_lookup references in the macOS bundle (the wrapper-check
- * flags them). Every nsx benchmark calls MPI_Wtime for its timing. */
-double MPI_Wtime(void)                                         { return PMPI_Wtime(); }
-double MPI_Wtick(void)                                         { return PMPI_Wtick(); }
+/* NOTE: do NOT add MPI_Wtime / MPI_Wtick wrappers here. Under Mercury those must
+ * stay unwrapped so they resolve to the simulator's *simulated*-time clock; a
+ * strong wrapper forwarding to PMPI_Wtime diverts them to the host wall clock
+ * (gettimeofday), which silently corrupts every fidelity/latency measurement
+ * (the values become real host jitter instead of modeled latency). They are
+ * intentionally excluded from the generator and allow-listed in
+ * check_mpi_wrappers.py for the same reason. */
 
 int MPI_Abort(MPI_Comm c, int e)                               { return PMPI_Abort(c, e); }
 int MPI_Alloc_mem(MPI_Aint s, MPI_Info i, void *p)             { return PMPI_Alloc_mem(s, i, p); }

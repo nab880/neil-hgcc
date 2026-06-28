@@ -32,8 +32,16 @@ export FILECHECK="$(command -v filecheck)"
 
 ## Running
 
+From the sst-hgcc source tree (after `make` in the build directory):
+
 ```bash
-lit -v sst-hgcc/tests/lit-tests
+lit -v tests/lit-tests
+```
+
+Or from the build directory:
+
+```bash
+make check
 ```
 
 ## Layout
@@ -44,6 +52,5 @@ core/      tests for core src2src transforms (main refactor, globals, TLS,
 pragmas/   one test per supported #pragma sst directive
 ```
 Each test creates a scratch dir at `%t.d` (e.g.
-`sst-hgcc/tests/lit-tests/Output/pragmas/delete.cc.tmp.d/`). Inspect the
-preserved `sst.pp.*.cc` file there to see exactly what the rewriter
-emitted.
+`tests/lit-tests/Output/pragmas/delete.cc.tmp.d/`). Inspect the preserved
+`sst.pp.*.cc` file there to see exactly what the rewriter emitted.

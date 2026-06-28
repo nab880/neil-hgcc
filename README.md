@@ -75,11 +75,15 @@ Install these in order before building sst-hgcc:
 |-----------|-------|
 | **SST Core** | Provides `sst-config` on your `PATH` |
 | **sst-elements** | Mercury/HG element; build with `--with-std=17` |
-| **LLVM 22** | With libTooling (required for `ssthg_clang`) |
+| **LLVM 22** | With libTooling (required for `ssthg_clang`); any 22.x release |
 | **C/C++ compiler** | Clang recommended (`CC=clang CXX=clang++`) |
 | **Autotools** | `autoconf`, `automake`, `libtool` (used by `./autogen.sh`) |
 
 ### Build and install
+
+Build [LLVM 22 with libTooling](INSTALL.md#build-and-install) first, then configure
+sst-hgcc against that install prefix. On macOS, export `SDKROOT` and
+`LDFLAGS="-fuse-ld=lld"` before `./configure` (see [INSTALL.md](INSTALL.md)).
 
 ```bash
 git clone https://github.com/sstsimulator/sst-hgcc.git
@@ -92,25 +96,29 @@ mkdir build && cd build
   --prefix=$HOME/sst-hgcc/install \
   --with-sst-core=$HOME/sst-core/install \
   --with-sst-elements=$HOME/sst-elements/install \
-  --with-clang=$HOME/llvm-project-18.1.8.src/install
+  --with-clang=$HOME/llvm-project-22.1.8.src/install
 
-make -j$(nproc) && make install
+make -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" && make install
 export PATH=$HOME/sst-hgcc/install/bin:$PATH
 ```
 
-On macOS, also set:
+On macOS, if you have not already set them for the LLVM/SST builds:
 
 ```bash
 export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
 export LDFLAGS="-fuse-ld=lld"
 ```
 
+Re-run `./configure` from a clean build directory if you add these after an
+earlier configure attempt.
+
 ### Verify the install
 
 ```bash
 hg++ --version
 hg++ --flags          # print Mercury include/link flags added automatically
-make check            # lit rewriter tests + test_tls library (optional)
+make check            # lit rewriter tests (optional; needs lit + FileCheck)
+make install          # installs libtest_tls.so to the SST element library path
 make installcheck     # SST integration test via tests/test_tls (needs sst on PATH)
 ```
 
@@ -366,7 +374,8 @@ make examples && make install-examples
 sst examples/mercury_hello/hello.py
 
 # Or copy the .so manually after make examples:
-cp examples/libmercury_hello.so $SST_ELEMENTS/lib/sst-elements-library/
+cp examples/libmercury_hello.so \
+  "$(sst-config SST_ELEMENT_LIBRARY SST_ELEMENT_LIBRARY_EXT_LIBDIR)/"
 sst examples/mercury_hello/hello.py
 ```
 
@@ -448,7 +457,7 @@ sst examples/mercury_hello_pragma/hello_pragma.py
 
 The simulated time will be higher than the base hello example because of the
 inserted delay. See also
-[`examples/pragmas/advance_time/demo.cc`](examples/pragmas/advance_time/demo.cc).
+[`examples/mercury_hello_pragma/hello_pragma.cc`](examples/mercury_hello_pragma/hello_pragma.cc).
 
 ---
 
@@ -478,9 +487,11 @@ HGCC transform modes (set via `--skeletonize`, `--memoize`, `--puppetize`,
 | Shadowize | `--shadowize` | Shadow execution variant |
 | Encapsulate | `--encapsulate` | Encapsulation/wrapping mode |
 
-Each example below lives in `examples/pragmas/<name>/demo.cc` and is built by
-`make examples`. Compile-only sources demonstrate rewriter behavior;
-full SST-runnable demos are listed separately.
+Each pragma with a dedicated compile-only demo lives in
+`examples/pragmas/<name>/demo.cc` (when present) and is built by `make examples`.
+Most pragma behavior is covered by the lit suite under
+[`tests/lit-tests/pragmas/`](tests/lit-tests/pragmas/). Full SST-runnable demos
+are listed separately below.
 
 ### Code transformation
 
@@ -684,7 +695,8 @@ sst-hgcc/
 ### Testing
 
 - **Rewriter unit tests:** [`tests/lit-tests/`](tests/lit-tests/) — run with
-  `lit -v tests/lit-tests` (see [tests/lit-tests/README.md](tests/lit-tests/README.md))
+  `make check` from the build directory, or `lit -v tests/lit-tests` from the
+  source tree (see [tests/lit-tests/README.md](tests/lit-tests/README.md))
 - **Integration test:** `tests/test_tls.cc` — built and run via `make installcheck`
 - **Examples:** `make examples` compiles all example sources;
   `make install-examples` installs runnable `.so` files;

@@ -12,7 +12,7 @@ config.test_exec_root = os.path.join(config.test_source_root, "Output")
 _here = os.path.dirname(os.path.realpath(__file__))
 _repo_root = os.path.abspath(os.path.join(_here, "..", "..", ".."))
 _install_bin = os.path.join(_repo_root, "install", "bin")
-_llvm_bin = os.environ.get("LLVM_ROOT", "/opt/homebrew/opt/llvm@18") + "/bin"
+_llvm_bin = os.environ.get("LLVM_ROOT", "/opt/homebrew/opt/llvm@22") + "/bin"
 _extra_path = os.pathsep.join(p for p in (_install_bin, _llvm_bin) if os.path.isdir(p))
 if _extra_path:
     os.environ["PATH"] = _extra_path + os.pathsep + os.environ.get("PATH", "")

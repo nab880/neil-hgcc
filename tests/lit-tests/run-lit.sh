@@ -10,7 +10,7 @@ missing=()
 if (( ${#missing[@]} > 0 )); then
   echo "error: required environment variable(s) not set: ${missing[*]}" >&2
   echo "Set them before running this script, for example:" >&2
-  echo "  export LLVM_ROOT=/path/to/llvm    # e.g. /opt/homebrew/opt/llvm@18" >&2
+  echo "  export LLVM_ROOT=/path/to/llvm    # e.g. /opt/homebrew/opt/llvm@22" >&2
   echo "  export HGCC=/path/to/hgcc         # e.g. .../sst-hgcc/build/hgcc" >&2
   exit 1
 fi

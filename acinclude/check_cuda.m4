@@ -27,6 +27,7 @@ AC_DEFUN([CHECK_CUDA_HOSTONLY], [
     cudaprobe=conftest_cuda$$.cu
     trap 'rm -f "$cudaprobe"' 0 1 2 13 15
     cat > "$cudaprobe" <<'_HGCC_CUDA_PROBE_EOF'
+#include <stddef.h>
 #define __host__ __attribute__((host))
 #define __device__ __attribute__((device))
 #define __global__ __attribute__((global))
@@ -40,7 +41,7 @@ struct dim3 {
 typedef enum cudaError { cudaSuccess = 0 } cudaError_t;
 typedef struct CUstream_st* cudaStream_t;
 extern "C" cudaError_t cudaConfigureCall(dim3 gridDim, dim3 blockDim,
-                                         unsigned long sharedMem = 0,
+                                         size_t sharedMem = 0,
                                          cudaStream_t stream = 0);
 __global__ void hgconf_kern(int* p) { *p = 1; }
 int main() {

@@ -76,7 +76,7 @@ llvm::cl::opt<bool> CompilerGlobals::memoizeOpt("memoize",
   llvm::cl::cat(ssthgCategoryOpt),
   llvm::cl::sub(llvm::cl::SubCommand::getAll()));
 llvm::cl::opt<bool> CompilerGlobals::encapsulateOpt("encapsulate",
-  llvm::cl::desc("Run skeletonization source-to-source"),
+  llvm::cl::desc("Run encapsulation source-to-source"),
   llvm::cl::cat(ssthgCategoryOpt),
   llvm::cl::sub(llvm::cl::SubCommand::getAll()));
 llvm::cl::opt<bool> CompilerGlobals::shadowizeOpt("shadowize",
@@ -84,7 +84,7 @@ llvm::cl::opt<bool> CompilerGlobals::shadowizeOpt("shadowize",
   llvm::cl::cat(ssthgCategoryOpt),
   llvm::cl::sub(llvm::cl::SubCommand::getAll()));
 llvm::cl::opt<bool> CompilerGlobals::puppetizeOpt("puppetize",
-  llvm::cl::desc("Run skeletonization source-to-source"),
+  llvm::cl::desc("Run puppetization source-to-source"),
   llvm::cl::cat(ssthgCategoryOpt),
   llvm::cl::sub(llvm::cl::SubCommand::getAll()));
 llvm::cl::opt<bool> CompilerGlobals::verboseOpt("verbose",

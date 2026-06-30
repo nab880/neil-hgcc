@@ -18,13 +18,21 @@ CUDA_TEST_EXT_LIBS = tests/libtest_cuda_vecadd.so \
                      tests/libtest_cuda_mpi_halo.so \
                      tests/libmercury_llm_train.so \
                      tests/libmercury_megatron.so \
-                     tests/libmercury_3d.so
+                     tests/libmercury_3d.so \
+                     tests/libmercury_fsdp.so \
+                     tests/libmercury_moe.so \
+                     tests/libmercury_inference.so \
+                     tests/libmercury_context.so
 CUDA_TEST_OBJS     = tests/test_cuda_vecadd.o \
                      tests/test_cuda_streams.o \
                      tests/test_cuda_mpi_halo.o \
                      tests/llm_train.o \
                      tests/megatron.o \
-                     tests/parallel3d.o
+                     tests/parallel3d.o \
+                     tests/fsdp.o \
+                     tests/moe.o \
+                     tests/infer.o \
+                     tests/ring_attn.o
 CUDA_TEST_LOGS     = tests/out_cuda.log tests/out_bw_hi.log tests/out_bw_lo.log \
                      tests/out_cal.log tests/out_streams.log \
                      tests/out_halo_off.log tests/out_halo_on.log \
@@ -33,13 +41,22 @@ CUDA_TEST_LOGS     = tests/out_cuda.log tests/out_bw_hi.log tests/out_bw_lo.log 
                      tests/out_mega_pp_m1.log tests/out_mega_pp_m4.log \
                      tests/out_mega_tp_slow.log tests/out_mega_tp_fast.log \
                      tests/out_3d_full.log tests/out_3d_pp.log tests/out_3d_tp.log \
-                     tests/out_3d_dp_slow.log tests/out_3d_dp_fast.log
+                     tests/out_3d_dp_slow.log tests/out_3d_dp_fast.log \
+                     tests/out_fsdp_prefetch.log tests/out_fsdp_noprefetch.log \
+                     tests/out_moe_uniform.log tests/out_moe_skewed.log \
+                     tests/out_infer_s32.log tests/out_infer_s64.log \
+                     tests/out_ctx_overlap.log tests/out_ctx_nooverlap.log
 CUDA_TEST_RUNNERS  = $(srcdir)/tests/run_test_cuda_vecadd.sh \
                      $(srcdir)/tests/run_test_cuda_streams.sh \
                      $(srcdir)/tests/run_test_cuda_mpi_halo.sh \
                      $(srcdir)/tests/run_test_cuda_llm_train.sh \
                      $(srcdir)/tests/run_test_cuda_megatron.sh \
-                     $(srcdir)/tests/run_test_cuda_3d.sh
+                     $(srcdir)/tests/run_test_cuda_3d.sh \
+                     $(srcdir)/tests/run_test_cuda_fsdp.sh \
+                     $(srcdir)/tests/run_test_cuda_moe.sh \
+                     $(srcdir)/tests/run_test_cuda_inference.sh \
+                     $(srcdir)/tests/run_test_cuda_context.sh \
+                     $(srcdir)/tests/run_test_cuda_arch.sh
 endif
 
 check-local: $(TESTS_EXT_LIB) $(CUDA_TEST_EXT_LIBS) lit-tests
@@ -169,6 +186,58 @@ tests/libmercury_3d.so: tests/parallel3d.o $(top_builddir)/hg++
 	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
 	    $(top_builddir)/hg++ tests/parallel3d.o -o $@
 
+# FSDP / ZeRO-3 smoke test.
+tests/fsdp.o: $(srcdir)/examples/mercury_fsdp/fsdp.cu \
+              $(top_builddir)/ssthg_clang $(top_builddir)/hg++
+	@$(MKDIR_P) tests
+	PYTHONPATH=$(top_builddir):$(top_srcdir)$${PYTHONPATH:+:$${PYTHONPATH}} \
+	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
+	    $(top_builddir)/hg++ -c $(srcdir)/examples/mercury_fsdp/fsdp.cu -o $@
+
+tests/libmercury_fsdp.so: tests/fsdp.o $(top_builddir)/hg++
+	PYTHONPATH=$(top_builddir):$(top_srcdir)$${PYTHONPATH:+:$${PYTHONPATH}} \
+	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
+	    $(top_builddir)/hg++ tests/fsdp.o -o $@
+
+# Expert-parallel MoE smoke test.
+tests/moe.o: $(srcdir)/examples/mercury_moe/moe.cu \
+             $(top_builddir)/ssthg_clang $(top_builddir)/hg++
+	@$(MKDIR_P) tests
+	PYTHONPATH=$(top_builddir):$(top_srcdir)$${PYTHONPATH:+:$${PYTHONPATH}} \
+	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
+	    $(top_builddir)/hg++ -c $(srcdir)/examples/mercury_moe/moe.cu -o $@
+
+tests/libmercury_moe.so: tests/moe.o $(top_builddir)/hg++
+	PYTHONPATH=$(top_builddir):$(top_srcdir)$${PYTHONPATH:+:$${PYTHONPATH}} \
+	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
+	    $(top_builddir)/hg++ tests/moe.o -o $@
+
+# Disaggregated inference smoke test.
+tests/infer.o: $(srcdir)/examples/mercury_inference/infer.cu \
+               $(top_builddir)/ssthg_clang $(top_builddir)/hg++
+	@$(MKDIR_P) tests
+	PYTHONPATH=$(top_builddir):$(top_srcdir)$${PYTHONPATH:+:$${PYTHONPATH}} \
+	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
+	    $(top_builddir)/hg++ -c $(srcdir)/examples/mercury_inference/infer.cu -o $@
+
+tests/libmercury_inference.so: tests/infer.o $(top_builddir)/hg++
+	PYTHONPATH=$(top_builddir):$(top_srcdir)$${PYTHONPATH:+:$${PYTHONPATH}} \
+	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
+	    $(top_builddir)/hg++ tests/infer.o -o $@
+
+# Context parallelism / ring attention smoke test.
+tests/ring_attn.o: $(srcdir)/examples/mercury_context/ring_attn.cu \
+                   $(top_builddir)/ssthg_clang $(top_builddir)/hg++
+	@$(MKDIR_P) tests
+	PYTHONPATH=$(top_builddir):$(top_srcdir)$${PYTHONPATH:+:$${PYTHONPATH}} \
+	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
+	    $(top_builddir)/hg++ -c $(srcdir)/examples/mercury_context/ring_attn.cu -o $@
+
+tests/libmercury_context.so: tests/ring_attn.o $(top_builddir)/hg++
+	PYTHONPATH=$(top_builddir):$(top_srcdir)$${PYTHONPATH:+:$${PYTHONPATH}} \
+	SSTHG_CLANG=$(top_builddir)/ssthg_clang \
+	    $(top_builddir)/hg++ tests/ring_attn.o -o $@
+
 install-exec-local: $(TESTS_EXT_LIB) $(CUDA_TEST_EXT_LIBS)
 	$(MKDIR_P) $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)
 	$(INSTALL_DATA) -m 755 $(TESTS_EXT_LIB) \
@@ -186,6 +255,10 @@ uninstall-local:
 	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libmercury_llm_train.so
 	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libmercury_megatron.so
 	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libmercury_3d.so
+	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libmercury_fsdp.so
+	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libmercury_moe.so
+	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libmercury_inference.so
+	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libmercury_context.so
 
 CLEANFILES   = tests/test_tls.o $(TESTS_EXT_LIB) $(LIT_JUNIT) tests/out.log \
                $(CUDA_TEST_OBJS) $(CUDA_TEST_EXT_LIBS) $(CUDA_TEST_LOGS)
@@ -195,4 +268,9 @@ EXTRA_DIST  += tests/test_tls.cc tests/test_tls.py tests/run_test_tls.sh tests/l
                tests/test_cuda_mpi_halo.cu tests/test_cuda_mpi_halo.py tests/run_test_cuda_mpi_halo.sh \
                tests/run_test_cuda_llm_train.sh tests/run_test_cuda_megatron.sh \
                tests/run_test_cuda_3d.sh \
+               tests/run_test_cuda_fsdp.sh \
+               tests/run_test_cuda_moe.sh \
+               tests/run_test_cuda_inference.sh \
+               tests/run_test_cuda_context.sh \
+               tests/run_test_cuda_arch.sh \
                tests/cuda_calibration.json

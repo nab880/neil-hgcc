@@ -114,6 +114,10 @@ static inline cudaError_t cudaGetLastError(void) {
   return cudaSuccess;
 }
 
+static inline cudaError_t cudaPeekAtLastError(void) {
+  return cudaSuccess;
+}
+
 static inline const char* cudaGetErrorString(cudaError_t error) {
   (void)error;
   return "no error";

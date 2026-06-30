@@ -1,8 +1,8 @@
 #!/bin/sh
 # Smoke test for the disaggregated inference demo (examples/mercury_inference):
 # prefill workers + decode pool with KV-cache transfer. Asserts the step completes
-# in disaggregated mode, and that decode is latency-bound: more decode steps cost
-# proportionally more time (linear scaling with step count).
+# in disaggregated mode, and that decode is latency-bound: doubling the number of
+# decode steps doubles the simulated time.
 set -eu
 
 SST_BIN="${SST_BIN:-sst}"
@@ -26,23 +26,23 @@ run() {
     || { echo "FAIL: step did not complete ($1)"; cat "$1"; exit 1; }
 }
 
-run out_infer_s32.log  4 1 32  100GB/s   # disaggregated, 32 decode steps
-run out_infer_s64.log  4 1 64  100GB/s   # same config, 64 decode steps
+run out_infer_s16.log  4 1 16  100GB/s   # disaggregated, 16 decode steps
+run out_infer_s32.log  4 1 32  100GB/s   # same config, 32 decode steps
 
+t_s16=$(sim_seconds out_infer_s16.log)
 t_s32=$(sim_seconds out_infer_s32.log)
-t_s64=$(sim_seconds out_infer_s64.log)
-test -n "$t_s32" && test -n "$t_s64"
+test -n "$t_s16" && test -n "$t_s32"
 
-awk -v s32="$t_s32" -v s64="$t_s64" 'BEGIN{
+awk -v s16="$t_s16" -v s32="$t_s32" 'BEGIN{
   ok = 1
-  # Decode is latency-bound: doubling steps should roughly double time.
-  ratio = s64 / s32
-  if (!(ratio > 1.5 && ratio < 3.0)) {
-    printf "FAIL: 2x steps ratio %.2f not in [1.5, 3.0] (s32=%g s, s64=%g s)\n",
-           ratio, s32, s64; ok = 0
+  # Decode is latency-bound: doubling steps should roughly double time (1.8-2.2x).
+  ratio = s32 / s16
+  if (!(ratio > 1.8 && ratio < 2.2)) {
+    printf "FAIL: 2x steps ratio %.2f not in [1.8, 2.2] (s16=%g s, s32=%g s)\n",
+           ratio, s16, s32; ok = 0
   }
   if (ok) {
-    printf "PASS: inference smoke -- 32 steps %g s, 64 steps %g s (%.2fx, decode latency-bound)\n",
-           s32, s64, ratio
+    printf "PASS: inference smoke -- 16 steps %g s, 32 steps %g s (%.2fx, decode latency-bound)\n",
+           s16, s32, ratio
   } else { exit 1 }
 }'

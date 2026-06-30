@@ -18,16 +18,16 @@ sim_seconds() {
         printf "%.12g", $1*m }'
 }
 
-# run <log> <NRANKS> <CP_OVERLAP> <LINK_BW>
+# run <log> <NRANKS> <CP_OVERLAP> <LAYERS> <LINK_BW>
 run() {
-  NRANKS="$2" CP_OVERLAP="$3" LINK_BW="$4" \
+  NRANKS="$2" CP_OVERLAP="$3" LAYERS="$4" LINK_BW="$5" \
     "$SST_BIN" "$CTX_PY" > "$1" 2>&1
   grep -q "mercury_context:.*done" "$1" \
     || { echo "FAIL: step did not complete ($1)"; cat "$1"; exit 1; }
 }
 
-run out_ctx_overlap.log    4 1 12GB/s   # slow fabric, overlap on
-run out_ctx_nooverlap.log  4 0 12GB/s   # slow fabric, overlap off
+run out_ctx_overlap.log    4 1 2 12GB/s   # slow fabric, overlap on
+run out_ctx_nooverlap.log  4 0 2 12GB/s   # slow fabric, overlap off
 
 t_ov=$(sim_seconds out_ctx_overlap.log)
 t_nov=$(sim_seconds out_ctx_nooverlap.log)

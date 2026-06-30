@@ -16,7 +16,7 @@
 # experts), TOPO (single|fattree), LINK_BW, LAYERS, SKEW (routing imbalance),
 # SUMI_ALLREDUCE_ALG is irrelevant here (no all-reduce).
 
-import sst, os
+import sst, os, sys
 from sst.merlin.base import *
 from sst.merlin.endpoint import *
 from sst.merlin.interface import *
@@ -24,6 +24,8 @@ from sst.merlin.topology import *
 from sst.hg import *
 
 if __name__ == "__main__":
+    example_dir = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, os.path.dirname(example_dir))
 
     PlatformDefinition.loadPlatformFile("platform_file_hg_test")
     PlatformDefinition.setCurrentPlatform("platform_hg_test")

@@ -44,7 +44,7 @@ CUDA_TEST_LOGS     = tests/out_cuda.log tests/out_bw_hi.log tests/out_bw_lo.log 
                      tests/out_3d_dp_slow.log tests/out_3d_dp_fast.log \
                      tests/out_fsdp_prefetch.log tests/out_fsdp_noprefetch.log \
                      tests/out_moe_uniform.log tests/out_moe_skewed.log \
-                     tests/out_infer_s32.log tests/out_infer_s64.log \
+                     tests/out_infer_s16.log tests/out_infer_s32.log \
                      tests/out_ctx_overlap.log tests/out_ctx_nooverlap.log
 CUDA_TEST_RUNNERS  = $(srcdir)/tests/run_test_cuda_vecadd.sh \
                      $(srcdir)/tests/run_test_cuda_streams.sh \

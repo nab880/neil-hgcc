@@ -18,16 +18,16 @@ sim_seconds() {
         printf "%.12g", $1*m }'
 }
 
-# run <log> <NRANKS> <SKEW> <LINK_BW>
+# run <log> <NRANKS> <SKEW> <LAYERS> <LINK_BW>
 run() {
-  NRANKS="$2" SKEW="$3" LINK_BW="$4" \
+  NRANKS="$2" SKEW="$3" LAYERS="$4" LINK_BW="$5" \
     "$SST_BIN" "$MOE_PY" > "$1" 2>&1
   grep -q "mercury_moe:.*done" "$1" \
     || { echo "FAIL: step did not complete ($1)"; cat "$1"; exit 1; }
 }
 
-run out_moe_uniform.log  8 0.0 100GB/s   # uniform routing
-run out_moe_skewed.log   8 0.8 100GB/s   # heavy routing skew -> link contention
+run out_moe_uniform.log  4 0.0 2 100GB/s   # uniform routing
+run out_moe_skewed.log   4 0.8 2 100GB/s   # heavy routing skew -> link contention
 
 t_uniform=$(sim_seconds out_moe_uniform.log)
 t_skewed=$(sim_seconds out_moe_skewed.log)

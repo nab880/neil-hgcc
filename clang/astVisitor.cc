@@ -1166,9 +1166,9 @@ stripDeviceStub(const std::string& mangled)
   size_t numEnd = pos, numBeg = pos;
   while (numBeg > 0 && std::isdigit((unsigned char)mangled[numBeg - 1])) --numBeg;
   if (numBeg == numEnd) return mangled;
-  int len = std::atoi(mangled.substr(numBeg, numEnd - numBeg).c_str());
-  int newLen = len - (int)stub.size();
-  if (newLen <= 0) return mangled;
+  size_t len = static_cast<size_t>(std::stoul(mangled.substr(numBeg, numEnd - numBeg)));
+  size_t newLen = len > stub.size() ? len - stub.size() : 0;
+  if (newLen == 0) return mangled;
   return mangled.substr(0, numBeg) + std::to_string(newLen) +
          mangled.substr(pos + stub.size());
 }

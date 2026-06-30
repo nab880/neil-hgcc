@@ -22,7 +22,7 @@ __global__ void act_norm(const float* x, float* y, int n) {
   if (i < n) y[i] = x[i] * 0.5f + 1.0f;
 }
 
-static inline int grid_for(int threads, int block) { return (threads + block - 1) / block; }
+static inline int grid_for(long threads, int block) { return (int)((threads + block - 1) / block); }
 
 static void tp_layer(float* d, cudaStream_t s, MPI_Comm tp, int tp_size,
                      int passes) {

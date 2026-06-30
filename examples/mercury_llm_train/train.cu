@@ -45,7 +45,7 @@ __global__ void gelu(const float* x, float* y, int n) {
   if (i < n) y[i] = x[i] * 0.5f;
 }
 
-static inline int grid_for(int threads, int block) { return (threads + block - 1) / block; }
+static inline int grid_for(long threads, int block) { return (int)((threads + block - 1) / block); }
 
 // One transformer layer's forward kernels on the compute stream. d is a single
 // device scratch cookie -- contents are never read (model don't execute), only

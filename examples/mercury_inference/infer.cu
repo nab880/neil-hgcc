@@ -50,7 +50,7 @@ __global__ void gelu(const float* x, float* y, int n) {
   if (i < n) y[i] = x[i] * 0.5f;
 }
 
-static inline int grid_for(int threads, int block) { return (threads + block - 1) / block; }
+static inline int grid_for(long threads, int block) { return (int)((threads + block - 1) / block); }
 
 // Bucket a NULL-buffer point-to-point transfer of `count` MPI_FLOATs into chunks that fit
 // the simulator's 32-bit BYTE counter (the full KV cache exceeds 2^31 at large L/S/B; the

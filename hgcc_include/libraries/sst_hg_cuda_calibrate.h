@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -71,12 +72,11 @@ inline void dump() {
 
 /* Idempotent atexit registration; construct table() before registering dump. */
 inline void install_atexit() {
-  static bool installed = false;
-  if (!installed) {
-    installed = true;
+  static std::once_flag flag;
+  std::call_once(flag, [] {
     (void)table();
     std::atexit(dump);
-  }
+  });
 }
 
 }  // namespace sst_hg_calibrate

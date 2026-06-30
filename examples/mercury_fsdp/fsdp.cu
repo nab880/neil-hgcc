@@ -54,7 +54,7 @@ __global__ void gelu(const float* x, float* y, int n) {
   if (i < n) y[i] = x[i] * 0.5f;
 }
 
-static inline int grid_for(int threads, int block) { return (threads + block - 1) / block; }
+static inline int grid_for(long threads, int block) { return (int)((threads + block - 1) / block); }
 
 static void forward_layer(float* d, cudaStream_t s) {
   const int blk = 256;
@@ -84,9 +84,8 @@ int main(int argc, char** argv) {
 
   float* d = nullptr;
   cudaMalloc((void**)&d, (size_t)T * H * sizeof(float));
-  cudaStream_t compute, comms;
+  cudaStream_t compute;
   cudaStreamCreate(&compute);
-  cudaStreamCreate(&comms);
 
   // Per-rank shard of one layer's params/grads (sharded across the DP group).
   const int shard = size > 1 ? GRAD_ELEMS / size : GRAD_ELEMS;
@@ -139,7 +138,6 @@ int main(int argc, char** argv) {
   cudaDeviceSynchronize();
 
   cudaStreamDestroy(compute);
-  cudaStreamDestroy(comms);
   cudaFree(d);
   if (rank == 0)
     std::printf("mercury_fsdp: %d ranks (ZeRO-3), prefetch=%d, %d layers, shard=%d done\n",

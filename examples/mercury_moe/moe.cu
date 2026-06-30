@@ -23,7 +23,7 @@ __global__ void expert_up(const float* x, const float* w, float* y, int n) {}
 #pragma sst gpu_compute flops(32768) intops(0) read(16) write(4)
 __global__ void expert_down(const float* x, const float* w, float* y, int n) {}
 
-static inline int grid_for(int threads, int block) { return (threads + block - 1) / block; }
+static inline int grid_for(long threads, int block) { return (int)((threads + block - 1) / block); }
 
 static void attention(float* d, cudaStream_t s, int passes) {
   const int blk = 256;

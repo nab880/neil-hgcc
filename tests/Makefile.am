@@ -19,6 +19,21 @@ CUDA_TEST_EXT_LIBS = tests/libtest_cuda_vecadd.so \
                      tests/libmercury_llm_train.so \
                      tests/libmercury_megatron.so \
                      tests/libmercury_3d.so
+CUDA_TEST_OBJS     = tests/test_cuda_vecadd.o \
+                     tests/test_cuda_streams.o \
+                     tests/test_cuda_mpi_halo.o \
+                     tests/llm_train.o \
+                     tests/megatron.o \
+                     tests/parallel3d.o
+CUDA_TEST_LOGS     = tests/out_cuda.log tests/out_bw_hi.log tests/out_bw_lo.log \
+                     tests/out_cal.log tests/out_streams.log \
+                     tests/out_halo_off.log tests/out_halo_on.log \
+                     tests/out_llm_slow_ov.log tests/out_llm_slow_noov.log \
+                     tests/out_llm_fast_gd.log tests/out_llm_fast_nogd.log \
+                     tests/out_mega_pp_m1.log tests/out_mega_pp_m4.log \
+                     tests/out_mega_tp_slow.log tests/out_mega_tp_fast.log \
+                     tests/out_3d_full.log tests/out_3d_pp.log tests/out_3d_tp.log \
+                     tests/out_3d_dp_slow.log tests/out_3d_dp_fast.log
 CUDA_TEST_RUNNERS  = $(srcdir)/tests/run_test_cuda_vecadd.sh \
                      $(srcdir)/tests/run_test_cuda_streams.sh \
                      $(srcdir)/tests/run_test_cuda_mpi_halo.sh \
@@ -173,19 +188,7 @@ uninstall-local:
 	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libmercury_3d.so
 
 CLEANFILES   = tests/test_tls.o $(TESTS_EXT_LIB) $(LIT_JUNIT) tests/out.log \
-               tests/test_cuda_vecadd.o tests/test_cuda_streams.o tests/test_cuda_mpi_halo.o \
-               tests/libtest_cuda_vecadd.so tests/libtest_cuda_streams.so tests/libtest_cuda_mpi_halo.so \
-               tests/llm_train.o tests/libmercury_llm_train.so \
-               tests/megatron.o tests/libmercury_megatron.so \
-               tests/parallel3d.o tests/libmercury_3d.so \
-               tests/out_cuda.log tests/out_bw_hi.log tests/out_bw_lo.log tests/out_cal.log \
-               tests/out_streams.log tests/out_halo_off.log tests/out_halo_on.log \
-               tests/out_llm_slow_ov.log tests/out_llm_slow_noov.log \
-               tests/out_llm_fast_gd.log tests/out_llm_fast_nogd.log \
-               tests/out_mega_pp_m1.log tests/out_mega_pp_m4.log \
-               tests/out_mega_tp_slow.log tests/out_mega_tp_fast.log \
-               tests/out_3d_full.log tests/out_3d_pp.log tests/out_3d_tp.log \
-               tests/out_3d_dp_slow.log tests/out_3d_dp_fast.log
+               $(CUDA_TEST_OBJS) $(CUDA_TEST_EXT_LIBS) $(CUDA_TEST_LOGS)
 EXTRA_DIST  += tests/test_tls.cc tests/test_tls.py tests/run_test_tls.sh tests/lit-tests \
                tests/test_cuda_vecadd.cu tests/test_cuda_vecadd.py tests/run_test_cuda_vecadd.sh \
                tests/test_cuda_streams.cu tests/test_cuda_streams.py tests/run_test_cuda_streams.sh \

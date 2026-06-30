@@ -270,8 +270,6 @@ ComputeVisitor::visitBodyParenExpr(ParenExpr* expr, Loop::Body& body)
   addOperations(expr->getSubExpr(), body);
 }
 
-#define heisenbug fprintf(stderr, "%s:%d\n", __FILE__, __LINE__); fflush(stdout)
-
 void
 ComputeVisitor::visitBodyArraySubscriptExpr(ArraySubscriptExpr* expr, Loop::Body& body, bool isLHS)
 {
@@ -639,11 +637,6 @@ ComputeVisitor::addLoopContribution(std::ostream& os, Loop& loop)
       os << " intops += tripCount" << loop.body.depth << "*" << loop.body.intops << ";";
   }
 
-#if 0
-    printf("trip%d=%s,flops=%d,read=%d,write=%d,ops=%d\n",
-         loop.body.depth, loop.tripCount.c_str(),
-         loop.body.flops, loop.body.readBytes, loop.body.writeBytes, loop.body.intops);
-#endif
   auto end = loop.body.subLoops.end();
   for (auto iter=loop.body.subLoops.begin(); iter != end; ++iter){
     addLoopContribution(os, *iter);

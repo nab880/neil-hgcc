@@ -17,6 +17,7 @@ int main(int /*argc*/, char** /*argv*/) {
   const size_t bytes = n * sizeof(float);
 
   float ha[n];
+  float hb[n];
   float hc[n];
 
   float *da = nullptr, *db = nullptr, *dc = nullptr;
@@ -25,7 +26,7 @@ int main(int /*argc*/, char** /*argv*/) {
   cudaMalloc((void**)&dc, bytes);
 
   cudaMemcpy(da, ha, bytes, cudaMemcpyHostToDevice);
-  cudaMemcpy(db, ha, bytes, cudaMemcpyHostToDevice);
+  cudaMemcpy(db, hb, bytes, cudaMemcpyHostToDevice);
 
   const int threads = 256;
   const int blocks = (n + threads - 1) / threads;

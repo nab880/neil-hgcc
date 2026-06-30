@@ -22,7 +22,7 @@ __global__ void act_norm(const float* x, float* y, int n) {
   if (i < n) y[i] = x[i] * 0.5f + 1.0f;
 }
 
-static inline int grid_for(int threads, int block) { return (threads + block - 1) / block; }
+static inline int grid_for(long threads, int block) { return (int)((threads + block - 1) / block); }
 
 static void tp_layer(float* d, cudaStream_t s, MPI_Comm tp, int tp_size, int passes) {
   const int blk = 256;
@@ -118,9 +118,7 @@ int main(int argc, char** argv) {
     const long GRAD_CHUNK = 256L * 1024 * 1024;   // 1GB/chunk, empirically the safe ceiling (1.9GB crashes the NIC)
     for (long off = 0; off < grad_elems; off += GRAD_CHUNK) {
       int chunk = (int)(grad_elems - off < GRAD_CHUNK ? grad_elems - off : GRAD_CHUNK);
-      MPI_Request grad_req;
-      MPI_Iallreduce(NULL, NULL, chunk, MPI_FLOAT, MPI_SUM, dp_comm, &grad_req);
-      MPI_Wait(&grad_req, MPI_STATUS_IGNORE);
+      MPI_Allreduce(NULL, NULL, chunk, MPI_FLOAT, MPI_SUM, dp_comm);
     }
   }
 

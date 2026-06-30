@@ -38,3 +38,4 @@ int main() {
 // CHECK: dim3 __sst_b_0 = (block);
 // CHECK: sst_hg_cuda_launch("_Z6vecAddPKfS0_Pfi", __sst_g_0.x
 // CHECK: 1, 3, 8, 4);
+// CHECK-NOT: __device_stub__vecAdd

@@ -1,4 +1,10 @@
-/* Toolkit-free replacement <cuda_runtime.h> for CUDA host-only simulation builds. */
+/* Toolkit-free replacement <cuda_runtime.h> for CUDA host-only simulation builds.
+ *
+ * Requires two include roots on the compiler -I path (both injected by hgcc):
+ *   -I<replacements/cuda/>   -- for the sibling sub-headers (driver_types.h, etc.)
+ *   -I<install prefix>       -- for <hgcc/libraries/hg_cuda.h>
+ * Do not add only one of these roots; the header will fail to resolve its includes.
+ */
 #ifndef HGCC_CUDA_RUNTIME_H
 #define HGCC_CUDA_RUNTIME_H
 

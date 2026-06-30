@@ -6,15 +6,23 @@
 #include "vector_types.h"   /* dim3 */
 #include <stddef.h>         /* size_t */
 
-extern "C" cudaError_t cudaConfigureCall(dim3 gridDim, dim3 blockDim,
-                                         size_t sharedMem = 0,
-                                         cudaStream_t stream = 0);
-extern "C" unsigned __cudaPushCallConfiguration(dim3 gridDim, dim3 blockDim,
-                                                size_t sharedMem = 0,
-                                                cudaStream_t stream = 0);
-extern "C" cudaError_t __cudaPopCallConfiguration(dim3* gridDim,
-                                                  dim3* blockDim,
-                                                  size_t* sharedMem,
-                                                  void* stream);
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+cudaError_t cudaConfigureCall(dim3 gridDim, dim3 blockDim,
+                              size_t sharedMem = 0,
+                              cudaStream_t stream = 0);
+unsigned __cudaPushCallConfiguration(dim3 gridDim, dim3 blockDim,
+                                     size_t sharedMem = 0,
+                                     cudaStream_t stream = 0);
+cudaError_t __cudaPopCallConfiguration(dim3* gridDim,
+                                       dim3* blockDim,
+                                       size_t* sharedMem,
+                                       void* stream);
+
+#ifdef __cplusplus
+}  /* extern "C" */
+#endif
 
 #endif

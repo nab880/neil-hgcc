@@ -6,9 +6,11 @@
 #include "vector_types.h"   /* dim3 */
 #include <stddef.h>         /* size_t */
 
+/* These hooks use C++ default arguments, so the whole block is C++-only. The
+ * header is reached only from cuda_runtime.h under -x cuda (always C++); guard
+ * the body so a stray C include is a clean no-op rather than a parse error. */
 #ifdef __cplusplus
 extern "C" {
-#endif
 
 cudaError_t cudaConfigureCall(dim3 gridDim, dim3 blockDim,
                               size_t sharedMem = 0,
@@ -21,7 +23,6 @@ cudaError_t __cudaPopCallConfiguration(dim3* gridDim,
                                        size_t* sharedMem,
                                        void* stream);
 
-#ifdef __cplusplus
 }  /* extern "C" */
 #endif
 

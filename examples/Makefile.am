@@ -118,7 +118,7 @@ EXTRA_DIST += examples/platform_file_hg_test.py \
 	examples/mercury_context/ring_attn.cu examples/mercury_context/ring_attn.py \
 	examples/mercury_context/run.sh examples/mercury_context/README.md \
 	examples/mercury_moe/moe.cu examples/mercury_moe/moe.py \
-	examples/mercury_moe/run.sh examples/mercury_moe/skew_sweep.sh \
+	examples/mercury_moe/skew_sweep.sh \
 	examples/mercury_moe/README.md \
 	examples/mercury_cuda_halo/halo.cu examples/mercury_cuda_halo/halo.py \
 	examples/mercury_cuda_halo/run.sh examples/mercury_cuda_halo/gpu_calibration.json \

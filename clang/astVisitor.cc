@@ -45,20 +45,22 @@ Questions? Contact sst-macro-help@sandia.gov
 #include "astVisitor.h"
 #include "replacePragma.h"
 #include "computePragma.h"
+#include "gpuPragma.h"
+#include "computeVisitor.h"
+#include "clang/AST/Mangle.h"
 #include  <sys/time.h>
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
+#include <cctype>
 #include <hgcc_config.h>
 
 clang::LangOptions Printing::langOpts;
 clang::PrintingPolicy Printing::policy(Printing::langOpts);
 
 llvm::cl::OptionCategory CompilerGlobals::ssthgCategoryOpt("SST/Macro options");
-// CommonOptionsParser registers -p/extra-arg/positionals with
-// cl::sub(SubCommand::getAll()). LLVM 17+ treats options without the same
-// sub() as unrelated, so --system-includes was rejected as unknown.
+// LLVM 17+ requires cl::sub(SubCommand::getAll()) or --system-includes is rejected.
 llvm::cl::opt<std::string> CompilerGlobals::includeListOpt("system-includes",
   llvm::cl::desc("Give the list of default system include paths for the pre-processing compiler"),
   llvm::cl::value_desc("list:of:paths"),
@@ -74,7 +76,7 @@ llvm::cl::opt<bool> CompilerGlobals::memoizeOpt("memoize",
   llvm::cl::cat(ssthgCategoryOpt),
   llvm::cl::sub(llvm::cl::SubCommand::getAll()));
 llvm::cl::opt<bool> CompilerGlobals::encapsulateOpt("encapsulate",
-  llvm::cl::desc("Run skeletonization source-to-source"),
+  llvm::cl::desc("Run encapsulation source-to-source"),
   llvm::cl::cat(ssthgCategoryOpt),
   llvm::cl::sub(llvm::cl::SubCommand::getAll()));
 llvm::cl::opt<bool> CompilerGlobals::shadowizeOpt("shadowize",
@@ -82,7 +84,7 @@ llvm::cl::opt<bool> CompilerGlobals::shadowizeOpt("shadowize",
   llvm::cl::cat(ssthgCategoryOpt),
   llvm::cl::sub(llvm::cl::SubCommand::getAll()));
 llvm::cl::opt<bool> CompilerGlobals::puppetizeOpt("puppetize",
-  llvm::cl::desc("Run skeletonization source-to-source"),
+  llvm::cl::desc("Run puppetization source-to-source"),
   llvm::cl::cat(ssthgCategoryOpt),
   llvm::cl::sub(llvm::cl::SubCommand::getAll()));
 llvm::cl::opt<bool> CompilerGlobals::verboseOpt("verbose",
@@ -110,15 +112,8 @@ using namespace clang::driver;
 using namespace clang::tooling;
 using namespace modes;
 
-/**
- * @brief isFxnPointerForm
- * @param qt
- * @return Whether a type is a function pointer type and is implicit such as (void)(*funcvar)(int);
- *         rather than typedef void(*functype)(int); functype funcvar;
- */
 static bool isFxnPointerForm(QualType qt)
 {
-  //typedefs need no special treatment
   bool isTypeDef = isa<TypedefType>(qt.getTypePtr());
   if (isTypeDef) return false;
 
@@ -133,10 +128,7 @@ static std::string appendText(clang::Expr* expr, const std::string& toAppend)
   return pp.str();
 }
 
-// One-shot stderr warning: lambda capture init resolves to a class peelExpr
-// does not recognize. An unknown wrapper around a global DeclRef would
-// silently fail to erase from globalsTouched_; surface it so peelExpr can be
-// extended.
+// Warn once when lambda capture peel hits an unrecognized leaf class.
 static bool _lambdaPeelUnknownLeafWarned = false;
 
 static void warnLambdaPeelUnknownLeaf(const std::string& varName,
@@ -415,6 +407,18 @@ SkeletonASTVisitor::shouldVisitDecl(VarDecl* D)
 {
   if (keepGlobals_ || isa<ParmVarDecl>(D) || D->isImplicit() || insideCxxMethod_){
     return false;
+  }
+
+  // CUDA __device__/__constant__ variables have no host storage, so they are
+  // not privatized into get_sst_hg_global_data() offset lookups like host
+  // globals.
+  if (D->hasAttrs()){
+    for (Attr* attr : D->getAttrs()){
+      if (attr->getKind() == attr::CUDADevice ||
+          attr->getKind() == attr::CUDAConstant){
+        return false;
+      }
+    }
   }
 
   //ignore eli variables
@@ -732,6 +736,7 @@ SkeletonASTVisitor::addTransitiveNullInformation(NamedDecl* decl, std::ostream& 
   while (transPrg){
     nd = transPrg->getAppliedDecl();
     if (nd) os << "->" << nd->getNameAsString();
+    transPrg = transPrg->getTransitive();
   }
 }
 
@@ -1127,6 +1132,236 @@ SkeletonASTVisitor::TraverseCallExpr(CallExpr* expr, DataRecursionQueue*  /*queu
   return true;
 }
 
+static bool
+isSideEffectFreeLaunchArg(const Expr* e)
+{
+  e = e->IgnoreParenImpCasts();
+  switch (e->getStmtClass()){
+    case Stmt::DeclRefExprClass:
+    case Stmt::IntegerLiteralClass:
+    case Stmt::FloatingLiteralClass:
+    case Stmt::CXXBoolLiteralExprClass:
+    case Stmt::CharacterLiteralClass:
+    case Stmt::StringLiteralClass:
+    case Stmt::CXXNullPtrLiteralExprClass:
+      return true;
+    case Stmt::MemberExprClass:
+      return isSideEffectFreeLaunchArg(cast<MemberExpr>(e)->getBase());
+    case Stmt::UnaryOperatorClass: {
+      auto* u = cast<UnaryOperator>(e);
+      if (u->isIncrementDecrementOp()) return false;
+      return isSideEffectFreeLaunchArg(u->getSubExpr());
+    }
+    default:
+      return false;
+  }
+}
+
+// A __global__ kernel or device-only (__device__ without __host__) function.
+// Its body is device code host-only skeletonization must not rewrite.
+static bool
+isCudaDeviceCode(const clang::FunctionDecl* D)
+{
+  if (!CompilerGlobals::CI().getLangOpts().CUDA || !D->hasAttrs()) return false;
+  bool isGlobal = false, isDevice = false, isHost = false;
+  for (const Attr* attr : D->getAttrs()){
+    switch (attr->getKind()){
+      case attr::CUDAGlobal: isGlobal = true; break;
+      case attr::CUDADevice: isDevice = true; break;
+      case attr::CUDAHost: isHost = true; break;
+      default: break;
+    }
+  }
+  return isGlobal || (isDevice && !isHost);
+}
+
+// Host stub mangling embeds __device_stub__; strip it for calibration keys.
+static std::string
+stripDeviceStub(const std::string& mangled)
+{
+  static const std::string stub = "__device_stub__";
+  auto pos = mangled.find(stub);
+  if (pos == std::string::npos) return mangled;
+  size_t numEnd = pos, numBeg = pos;
+  while (numBeg > 0 && std::isdigit((unsigned char)mangled[numBeg - 1])) --numBeg;
+  if (numBeg == numEnd) return mangled;
+  size_t len;
+  try {
+    len = static_cast<size_t>(std::stoul(mangled.substr(numBeg, numEnd - numBeg)));
+  } catch (const std::exception&) {
+    // Pathological length prefix (out_of_range); leave the name untouched.
+    return mangled;
+  }
+  size_t newLen = len > stub.size() ? len - stub.size() : 0;
+  if (newLen == 0) return mangled;
+  return mangled.substr(0, numBeg) + std::to_string(newLen) +
+         mangled.substr(pos + stub.size());
+}
+
+std::string
+SkeletonASTVisitor::mangleKernelName(FunctionDecl* kernel)
+{
+  if (!cudaMangler_){
+    cudaMangler_.reset(clang::ItaniumMangleContext::create(
+        CompilerGlobals::ASTContext(), CompilerGlobals::CI().getDiagnostics()));
+  }
+  if (!cudaMangler_->shouldMangleDeclName(kernel)){
+    return kernel->getNameAsString();
+  }
+  std::string out;
+  llvm::raw_string_ostream os(out);
+  cudaMangler_->mangleName(kernel, os);
+  os.flush();
+  return stripDeviceStub(out);
+}
+
+void
+SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
+{
+  FunctionDecl* kernel = expr->getDirectCallee();
+  if (!kernel){
+    errorAbort(expr, "could not resolve the kernel of a <<<>>> launch "
+                     "(dependent or unresolved). Instantiate the kernel, or "
+                     "annotate it with #pragma sst gpu_compute");
+  }
+
+  std::string kernelName = mangleKernelName(kernel);
+
+  // <<<grid, block, shmem, stream>>>: the config is a cudaConfigureCall whose
+  // args are grid, block, and optionally shared-mem and stream (defaulted to 0).
+  CallExpr* cfg = expr->getConfig();
+  auto cfgArg = [&](unsigned i, const char* dflt) -> std::string {
+    if (!cfg || i >= cfg->getNumArgs()) return dflt;
+    Expr* a = cfg->getArg(i);
+    if (isa<CXXDefaultArgExpr>(a)) return dflt;
+    return printWithGlobalsReplaced(a);
+  };
+  std::string gridStr  = cfgArg(0, "1");
+  std::string blockStr = cfgArg(1, "1");
+  std::string shmemStr = cfgArg(2, "0");
+  std::string streamStr = cfgArg(3, "0");
+
+  int id = cudaLaunchCounter_++;
+
+  // Cost precedence: launch pragma > kernel pragma > derived > zero+warn.
+  const GpuComputeCost* cost = SSTGpuComputePragma::costForStmt(expr);
+  if (!cost) cost = SSTGpuComputePragma::costForDecl(kernel);
+
+  std::string derivedAccum;
+  bool haveDerived = false;
+  if (!cost){
+    ComputeVisitor cv;
+    if (kernel->getBody() && cv.deriveKernelCost(kernel->getBody(), derivedAccum)){
+      haveDerived = true;
+    } else {
+      warn(getStart(expr), "CUDA kernel launch has no #pragma sst gpu_compute and "
+                           "its cost could not be derived; modeling zero GPU work");
+    }
+  }
+
+  std::stringstream os;
+  os << "({ dim3 __sst_g_" << id << " = (" << gridStr << "); "
+     << "dim3 __sst_b_" << id << " = (" << blockStr << "); ";
+
+  std::string costArgs;
+  if (haveDerived){
+    // Capture args into temps first to preserve side effects and avoid self-ref.
+    // Done in the outer scope so side effects run exactly once even if the cost
+    // lambda below is (it isn't) skipped.
+    for (unsigned i = 0; i < expr->getNumArgs(); ++i){
+      os << "auto __sst_arg" << id << "_" << i << " = ("
+         << printWithGlobalsReplaced(expr->getArg(i)) << "); ";
+    }
+    if (derivedAccum.find("threadIdx") != std::string::npos ||
+        derivedAccum.find("blockIdx") != std::string::npos){
+      warn(getStart(expr), "derived CUDA kernel cost depends on threadIdx/blockIdx; "
+                           "pinned to 0 (conservative upper bound on per-thread work)");
+    }
+    // Collect parameter names so we can skip any synthetic builtin (gridDim/
+    // blockDim/threadIdx/blockIdx) a parameter shadows -- a kernel may legally
+    // name a parameter "gridDim". The parameter binding then supplies that name.
+    std::set<std::string> paramNames;
+    for (unsigned i = 0; i < expr->getNumArgs() && i < kernel->getNumParams(); ++i){
+      std::string pn = kernel->getParamDecl(i)->getNameAsString();
+      if (!pn.empty()) paramNames.insert(pn);
+    }
+
+    // Bind builtins/params and run the derived accumulation inside a lambda so
+    // that kernel parameter names (which may collide with gridDim/blockDim/
+    // threadIdx/blockIdx or the flops/intops/readBytes/writeBytes accumulators)
+    // are confined to an inner scope. The lambda returns the four cost values
+    // into uniquely-named outer variables. threadIdx/blockIdx pinned to 0.
+    os << "struct { unsigned long long f, i, r, w; } __sst_cost_" << id
+       << " = [&]{ ";
+    if (!paramNames.count("gridDim"))
+      os << "dim3 gridDim = __sst_g_" << id << "; (void)gridDim; ";
+    if (!paramNames.count("blockDim"))
+      os << "dim3 blockDim = __sst_b_" << id << "; (void)blockDim; ";
+    if (!paramNames.count("threadIdx"))
+      os << "dim3 threadIdx(0,0,0); (void)threadIdx; ";
+    if (!paramNames.count("blockIdx"))
+      os << "dim3 blockIdx(0,0,0); (void)blockIdx; ";
+    for (unsigned i = 0; i < expr->getNumArgs(); ++i){
+      std::string pname;
+      if (i < kernel->getNumParams()) pname = kernel->getParamDecl(i)->getNameAsString();
+      if (!pname.empty()){
+        os << "auto " << pname << " = __sst_arg" << id << "_" << i
+           << "; (void)" << pname << "; ";
+      } else {
+        os << "(void)__sst_arg" << id << "_" << i << "; ";
+      }
+    }
+    // derivedAccum declares its own flops/intops/readBytes/writeBytes. Nest it in
+    // its own block so those declarations shadow (rather than redeclare) any
+    // like-named kernel parameter bound above, then hoist the results out.
+    os << "unsigned long long __sst_f=0,__sst_i=0,__sst_r=0,__sst_w=0; { "
+       << derivedAccum
+       << " __sst_f=flops; __sst_i=intops; __sst_r=readBytes; __sst_w=writeBytes; } ";
+    os << "return decltype(__sst_cost_" << id << "){__sst_f, __sst_i, __sst_r, __sst_w}; }(); ";
+    costArgs = "__sst_cost_" + std::to_string(id) + ".f, __sst_cost_" + std::to_string(id)
+             + ".i, __sst_cost_" + std::to_string(id) + ".r, __sst_cost_" + std::to_string(id) + ".w";
+  } else {
+    // Preserve side-effecting launch args when the kernel is not executed.
+    for (unsigned i = 0; i < expr->getNumArgs(); ++i){
+      Expr* arg = expr->getArg(i);
+      if (!isSideEffectFreeLaunchArg(arg)){
+        os << "(void)(" << printWithGlobalsReplaced(arg) << "); ";
+      }
+    }
+    std::string F = cost ? cost->flops : "0";
+    std::string I = cost ? cost->intops : "0";
+    std::string R = cost ? cost->bytesRead : "0";
+    std::string W = cost ? cost->bytesWritten : "0";
+    costArgs = F + ", " + I + ", " + R + ", " + W;
+  }
+
+  os << "sst_hg_cuda_launch(\"" << kernelName << "\", "
+     << "__sst_g_" << id << ".x, __sst_g_" << id << ".y, __sst_g_" << id << ".z, "
+     << "__sst_b_" << id << ".x, __sst_b_" << id << ".y, __sst_b_" << id << ".z, "
+     << "(" << shmemStr << "), (void*)(" << streamStr << "), "
+     << costArgs << "); })";
+
+  ::replace(expr, os.str());
+}
+
+bool
+SkeletonASTVisitor::TraverseCUDAKernelCallExpr(CUDAKernelCallExpr* expr,
+                                               DataRecursionQueue* /*queue*/)
+{
+  if (!CompilerGlobals::CI().getLangOpts().CUDA){
+    return Parent::TraverseCUDAKernelCallExpr(expr);
+  }
+  try {
+    PragmaActivateGuard pag(expr, this);
+    if (pag.skipVisit()) return true;
+    // Lower in every CUDA mode (including ENCAPSULATE), not skeletonize-only.
+    rewriteCudaLaunch(expr);
+  } catch (StmtDeleteException& e) {
+    if (e.deleted != expr) throw e;
+  }
+  return true;
+}
+
 void
 SkeletonASTVisitor::setFundamentalTypes(QualType qt, cArrayConfig& cfg)
 {
@@ -1153,21 +1388,6 @@ SkeletonASTVisitor::getArrayType(const Type* ty, cArrayConfig& cfg)
   }
 }
 
-
-/* TODO remove, unused
-static RecordDecl* getRecordDeclForType(QualType qt)
-{
-  if (qt->isStructureType() || qt->isClassType()){
-    const RecordType* rt = qt->getAsStructureType();
-    return rt->getDecl();
-  } else if (qt->isUnionType()){
-    const RecordType* rt = qt->getAsUnionType();
-    return rt->getDecl();
-  } else {
-    return nullptr;
-  }
-}
-*/
 
 void
 SkeletonASTVisitor::arrayFxnPointerTypedef(VarDecl* D, SkeletonASTVisitor::ArrayInfo* info,
@@ -1943,8 +2163,13 @@ SkeletonASTVisitor::TraverseFunctionDecl(clang::FunctionDecl* D)
   }
   if (D->isMain() && CompilerGlobals::refactorMain){
     replaceMain(D);
-  } else if (D->isTemplateInstantiation()   
-           || !D->isThisDeclarationADefinition()){
+  } else if (D->isTemplateInstantiation()){
+    // Non-definitions already returned above; only template instantiations skip
+    // here. An instantiated __global__/__device__ kernel is still device code we
+    // must strip so its body never reaches the host compile.
+    if (isCudaDeviceCode(D) && D->getBody() && !isInSystemHeader(getStart(D))){
+      ::replace(D->getBody(), "{}");
+    }
     return true;
   }
 
@@ -1967,10 +2192,22 @@ SkeletonASTVisitor::TraverseFunctionDecl(clang::FunctionDecl* D)
     return true;
   }
 
+  // CUDA device code: a __global__ kernel or a device-only (__device__ without
+  // __host__) function. Its body is device code that host-only skeletonization
+  // must not rewrite -- e.g. the free() in clang's cuda_wrappers operator delete
+  // would be prepended to sst_hg_::free. We never traverse the body; for a user
+  // kernel (not a system header) we also strip the body text so nothing
+  // device-side reaches the host compile. __host__ __device__ is left intact.
+  bool cudaDeviceCode = isCudaDeviceCode(D);
+
   try {
     PushGuard<FunctionDecl*> pg(CompilerGlobals::astContextLists.enclosingFunctionDecls, D);
     PragmaActivateGuard pag(D, this, D->isThisDeclarationADefinition());
-    if (!pag.skipVisit() && D->getBody()){
+    if (cudaDeviceCode){
+      if (D->getBody() && !isInSystemHeader(getStart(D))){
+        ::replace(D->getBody(), "{}");
+      }
+    } else if (!pag.skipVisit() && D->getBody()){
       traverseFunctionBody(D->getBody());
     }
   } catch (StmtDeleteException& e) {

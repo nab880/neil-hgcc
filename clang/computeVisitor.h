@@ -65,6 +65,12 @@ class ComputeVisitor  {
 
   void addOperations(clang::Stmt* stmt, Loop::Body& body, bool isLHS = false);
 
+  // Sum F/I/R/W over the loop tree (no sst_hg_compute_detailed call).
+  void emitCostAccumulation(std::ostream& os, Loop& loop);
+
+  // Derive per-thread cost accumulation for CUDA launch rewrite; false if unsupported.
+  bool deriveKernelCost(clang::Stmt* body, std::string& accumOut);
+
  private:
   struct Variable {
     uint16_t id;
@@ -73,6 +79,20 @@ class ComputeVisitor  {
 
   uint32_t idCount; //0 is sentinel for not inited
   uint32_t currentGeneration; //0 is sentinel for not inited
+  // CUDA cost derivation: assume if taken; loops -> sawLoop_ and zero+warn fallback.
+  bool derivingKernelCost_ = false;
+  bool sawLoop_ = false;
+
+  // Thrown to unwind out of a construct we cannot cost while deriving a CUDA
+  // kernel cost; deriveKernelCost catches it and falls back to zero+warn instead
+  // of the errorAbort()/exit() that a normal skeletonization would take.
+  struct DerivationBail {};
+
+  // While deriving a kernel cost, unwind gracefully; otherwise abort as usual.
+  void bailIfDeriving(const clang::Stmt* s, const std::string& msg){
+    if (derivingKernelCost_) throw DerivationBail{};
+    errorAbort(s, msg);
+  }
   std::map<MemoryLocation,AccessHistory,MemoryLocationCompare> arrays;
   std::map<clang::NamedDecl*,Variable> variables;
   clang::SourceLocation scopeStartLine;

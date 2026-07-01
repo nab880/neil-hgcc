@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "kernels": {
+    "_Z6vecAddPKfS0_Pfi": [
+      { "threads": 1024, "seconds": 0.25 }
+    ]
+  }
+}

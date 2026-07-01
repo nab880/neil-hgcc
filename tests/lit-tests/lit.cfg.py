@@ -5,7 +5,7 @@ import lit.formats
 
 config.name = "sst-hgcc"
 config.test_format = lit.formats.ShTest(execute_external=True)
-config.suffixes = [".cc", ".c"]
+config.suffixes = [".cc", ".c", ".cu"]
 config.test_source_root = os.path.dirname(os.path.realpath(__file__))
 config.test_exec_root = os.path.join(config.test_source_root, "Output")
 
@@ -28,9 +28,24 @@ def _resolve(env_name, tool_name):
 hgcc = _resolve("HGCC", "hgcc")
 filecheck = _resolve("FILECHECK", "FileCheck")
 
+# hg++: $HGXX, else the hg++ next to the resolved hgcc, else PATH. The
+# sibling must win over PATH or an older installed hg++ shadows the build
+# tree under test (install/bin sits on PATH above).
+hgxx = os.environ.get("HGXX")
+if hgxx and not (os.path.isfile(hgxx) and os.access(hgxx, os.X_OK)):
+    hgxx = None
+if not hgxx and hgcc:
+    _hgxx_cand = os.path.join(os.path.dirname(os.path.realpath(hgcc)), "hg++")
+    if os.path.isfile(_hgxx_cand) and os.access(_hgxx_cand, os.X_OK):
+        hgxx = _hgxx_cand
+if not hgxx:
+    hgxx = shutil.which("hg++")
+
 missing = []
 if not hgcc:
     missing.append("hgcc (install sst-hgcc or set $HGCC)")
+if not hgxx:
+    missing.append("hg++ (sits next to hgcc in the build dir, or set $HGXX)")
 if not filecheck:
     missing.append("FileCheck (install LLVM tools or set $FILECHECK)")
 
@@ -41,6 +56,7 @@ if missing:
     )
 else:
     config.substitutions.append(("%hgcc", hgcc))
+    config.substitutions.append(("%hgxx", hgxx))
     config.substitutions.append(("%FileCheck", filecheck))
 
     for var in (
@@ -63,6 +79,7 @@ else:
         "SST_LIB_PATH",
         "SST_HG_PREFIX",
         "HGCC",
+        "HGXX",
         "FILECHECK",
     ):
         if var in os.environ:

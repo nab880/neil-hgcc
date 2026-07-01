@@ -155,14 +155,14 @@ static void warnLambdaPeelUnknownLeaf(const std::string& varName,
 
 static void applySystemIncludePathList(const std::string& raw)
 {
-  char fullpathBuffer[1024];
   std::istringstream sstr(raw);
   std::string path;
   while (std::getline(sstr, path, ':')){
     if (path.empty()) continue;
-    const char* fullpath_cstr = realpath(path.c_str(), fullpathBuffer);
+    char* fullpath_cstr = realpath(path.c_str(), nullptr);
     if (fullpath_cstr){
       CompilerGlobals::realSystemIncludePaths.emplace_back(fullpath_cstr);
+      std::free(fullpath_cstr);
     } else {
       std::cerr << "realpath(...) failed to resolve " << path
                 << ". Cannot continue." << std::endl;
@@ -470,10 +470,11 @@ SkeletonASTVisitor::isInSystemHeader(SourceLocation loc)
     return false;
   }
 
-  char fullpathBuffer[1024];
-  const char* fullpath_cstr = realpath(ploc.getFilename(), fullpathBuffer);
+  char* fullpath_cstr = realpath(ploc.getFilename(), nullptr);
   if (fullpath_cstr){
-    llvm::StringRef fullpath(fullpath_cstr);
+    std::string fullpathStr(fullpath_cstr);
+    std::free(fullpath_cstr);
+    llvm::StringRef fullpath(fullpathStr);
     if (validHeaders_.empty()){
       //we have not been explicitly given a list of valid headers
       //just ignore all headers in default system paths
@@ -485,7 +486,7 @@ SkeletonASTVisitor::isInSystemHeader(SourceLocation loc)
       //found no matches
       return false;
     } else {
-      return validHeaders_.find(fullpath.data()) == validHeaders_.end();
+      return validHeaders_.find(fullpathStr) == validHeaders_.end();
     }
   } else {
     std::string err_str = std::string("realpath(...) failed to resolve ") + ploc.getFilename() + ". Cannot continue.";

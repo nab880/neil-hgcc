@@ -73,7 +73,7 @@ AC_ARG_WITH([python-config],
 
  if test "$have_integrated_core" = "yes"; then
   PY_INCLUDES="`$pycfg --includes`"
-  PY_LDFLAGS=`$pyexe $srcdir/config_tools/get_py_ldflags`
+  PY_LDFLAGS=`PYTHON_CONFIG="$pycfg" $pyexe $srcdir/config_tools/get_py_ldflags`
   PY_CPPFLAGS="$PY_INCLUDES"
   SAVE_CPPFLAGS="$CPPFLAGS"
   CPPFLAGS="$CPPFLAGS $PY_CPPFLAGS"

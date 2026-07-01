@@ -188,12 +188,19 @@ text.
   self-test would need a gtest harness the plugin doesn't currently have; the
   manual check is the pragmatic equivalent until then.
 
-### Optional follow-on (not required)
+### Follow-on: skeletonizer compute emitter (done)
 
-Once `CodeBuilder` exists, the skeletonizer rewrites (`replaceStmt`,
-`nullifyIfStmt`, `SSTComputePragma::replaceForStmt`) can adopt it opportunistically
-— same win, same zero output change. Do this only as those functions are touched
-for other reasons; a big-bang migration isn't worth the churn.
+`ComputeVisitor::replaceStmt` / `addLoopContribution` / `emitCostAccumulation`
+were migrated to `CodeBuilder` (they emit the same nested-brace loop-tree
+structure as the CUDA cost path and share `emitCostAccumulation`). This also
+brace-guards the CUDA `deriveKernelCost` accumulation for free. Output is
+token-identical; all 26 pragma + 18 CUDA lit tests pass.
+
+The remaining ~13 codegen `replace()` sites (flat single-brace fragments in
+`pragmas.cc`, the var-template/global-var emits, and the `pp.os` PrettyPrinter
+uses) were intentionally *not* migrated: they have no nested-scope structure, so
+`CodeBuilder` adds churn without guard value. Adopt it there only if one is
+touched for another reason.
 
 ---
 

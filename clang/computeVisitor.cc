@@ -616,9 +616,9 @@ ComputeVisitor::getTripCount(ForLoopSpec* spec)
 }
 
 void
-ComputeVisitor::addLoopContribution(std::ostream& os, Loop& loop)
+ComputeVisitor::addLoopContribution(CodeBuilder& os, Loop& loop)
 {
-  os << "{ ";
+  os.openBlock();
   os << " uint64_t tripCount" << loop.body.depth << "=";
   if (loop.body.depth > 0){
     os << "tripCount" << (loop.body.depth-1) << "*";
@@ -639,7 +639,7 @@ ComputeVisitor::addLoopContribution(std::ostream& os, Loop& loop)
   for (auto iter=loop.body.subLoops.begin(); iter != end; ++iter){
     addLoopContribution(os, *iter);
   }
-  os << "}";
+  os.closeBlock();
 }
 
 void
@@ -648,7 +648,7 @@ ComputeVisitor::setContext(Stmt* stmt){
 }
 
 void
-ComputeVisitor::emitCostAccumulation(std::ostream& os, Loop& loop)
+ComputeVisitor::emitCostAccumulation(CodeBuilder& os, Loop& loop)
 {
   // Emit one uint64_t accumulator per cost dimension over the (possibly nested)
   // loop tree; factored from replaceStmt so the CUDA launch rewrite can reuse it
@@ -675,17 +675,17 @@ ComputeVisitor::deriveKernelCost(Stmt* body, std::string& accumOut)
   }
   // Loops need launch-site locals; fall back to zero+warn.
   if (sawLoop_) return false;
-  std::stringstream os;
+  CodeBuilder os(getStart(body), "ComputeVisitor::deriveKernelCost");
   emitCostAccumulation(os, loop);
-  accumOut = os.str();
+  accumOut = os.take();
   return true;
 }
 
 void
 ComputeVisitor::replaceStmt(Stmt* stmt, Loop& loop, const std::string& nthread)
 {
-  std::stringstream sstr;
-  sstr << "{ ";
+  CodeBuilder sstr(getStart(stmt), "ComputeVisitor::replaceStmt");
+  sstr.openBlock();
   emitCostAccumulation(sstr, loop);
   auto iter = CompilerGlobals::astNodeMetadata.computeMemoryOverrides.find(stmt);
   if (iter != CompilerGlobals::astNodeMetadata.computeMemoryOverrides.end()){
@@ -693,11 +693,12 @@ ComputeVisitor::replaceStmt(Stmt* stmt, Loop& loop, const std::string& nthread)
   }
 
   if (nthread.empty()){
-    sstr << "sst_hg_compute_detailed(flops,intops,readBytes); }";
+    sstr << "sst_hg_compute_detailed(flops,intops,readBytes); ";
   } else {
     sstr << "sst_hg_compute_detailed_nthr(flops,intops,readBytes,"
-         << nthread << "); }";
+         << nthread << "); ";
   }
-  replace(stmt,sstr.str());
+  sstr.closeBlock();
+  replace(stmt,sstr.take());
 }
 

@@ -44,17 +44,17 @@ SSTGpuComputePragma::SSTGpuComputePragma(
     SourceLocation loc, std::map<std::string, std::list<std::string>>&& in_args)
 {
   auto args = in_args;
-  std::string f = takeFront(args, "flops");
-  std::string i = takeFront(args, "intops");
-  std::string r = takeFront(args, "read");
-  std::string w = takeFront(args, "write");
-  if (!f.empty()) cost_.flops = f;
-  if (!i.empty()) cost_.intops = i;
-  if (!r.empty()) cost_.bytesRead = r;
-  if (!w.empty()) cost_.bytesWritten = w;
+  for (size_t d = 0; d < kNumGpuCostDims; ++d){
+    std::string v = takeFront(args, kGpuCostDims[d].pragmaKey);
+    if (!v.empty()) cost_.exprs[d] = v;
+  }
   if (!args.empty()){
-    errorAbort(loc, "invalid #pragma sst gpu_compute clause; "
-                    "allowed: flops, intops, read, write");
+    std::string allowed;
+    for (size_t d = 0; d < kNumGpuCostDims; ++d){
+      allowed += (d ? ", " : "");
+      allowed += kGpuCostDims[d].pragmaKey;
+    }
+    errorAbort(loc, "invalid #pragma sst gpu_compute clause; allowed: " + allowed);
   }
 }
 

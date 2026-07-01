@@ -202,7 +202,7 @@ ComputeVisitor::visitBodyUnaryOperator(UnaryOperator* op, Loop::Body& body)
         if (pty.isVolatileQualified() || ty.isVolatileQualified()){
           //treat this as a new memory access each time
           TypeInfo ti = CompilerGlobals::CI().getASTContext().getTypeInfo(pty);
-          body.readBytes += ti.Width / 8;
+          body.readBytes() += ti.Width / 8;
         }
       }
     }
@@ -212,11 +212,11 @@ ComputeVisitor::visitBodyUnaryOperator(UnaryOperator* op, Loop::Body& body)
   case UO_PreInc:
   case UO_PreDec:
     if (ty->isIntegerType()) {
-      body.intops += 1;
+      body.intops() += 1;
     } else if (ty->isFloatingType()) {
-      body.flops += 1;
+      body.flops() += 1;
     } else if (ty->isPointerType()){
-      body.intops += 1;
+      body.intops() += 1;
     }
     break;
   default:
@@ -243,11 +243,11 @@ ComputeVisitor::visitBodyBinaryOperator(BinaryOperator* op, Loop::Body& body)
     case BO_Div:
     case BO_Sub:
       if (op->getType()->isIntegerType()) {
-        body.intops += 1;
+        body.intops() += 1;
       } else if (op->getType()->isFloatingType()) {
-        body.flops += 1;
+        body.flops() += 1;
       } else if (op->getType()->isPointerType()){
-        body.intops += 1;
+        body.intops() += 1;
       } else if (op->getType()->isDependentType()){
         //this better be a template type
         const Type* ty = op->getLHS()->getType().getTypePtr();
@@ -276,7 +276,7 @@ ComputeVisitor::visitBodyParenExpr(ParenExpr* expr, Loop::Body& body)
 void
 ComputeVisitor::visitBodyArraySubscriptExpr(ArraySubscriptExpr* expr, Loop::Body& body, bool isLHS)
 {
-  body.intops += 1; //pointer arithmetic
+  body.intops() += 1; //pointer arithmetic
   //well, well - we might have a unique memory access
   addOperations(expr->getIdx(), body);
   addOperations(expr->getBase(), body);
@@ -290,8 +290,8 @@ ComputeVisitor::visitBodyArraySubscriptExpr(ArraySubscriptExpr* expr, Loop::Body
     TypeInfo ti = CompilerGlobals::CI().getASTContext().getTypeInfo(expr->getType());
 
     //fails data flow check OR first access
-    if (isLHS) body.writeBytes += ti.Width / 8;
-    else       body.readBytes += ti.Width / 8;
+    if (isLHS) body.writeBytes() += ti.Width / 8;
+    else       body.readBytes() += ti.Width / 8;
   }
 }
 
@@ -401,8 +401,8 @@ ComputeVisitor::visitBodyIfStmt(IfStmt *stmt, Loop::Body &body)
 void
 ComputeVisitor::visitBodySwitchStmt(SwitchStmt *stmt, Loop::Body &body)
 {
-  body.intops += 1; //for jump table
-  body.readBytes += 8; //for jump table
+  body.intops() += 1; //for jump table
+  body.readBytes() += 8; //for jump table
   SwitchCase* sc = stmt->getSwitchCaseList();
   while (sc){
     addOperations(sc->getSubStmt(), body);
@@ -616,9 +616,9 @@ ComputeVisitor::getTripCount(ForLoopSpec* spec)
 }
 
 void
-ComputeVisitor::addLoopContribution(std::ostream& os, Loop& loop)
+ComputeVisitor::addLoopContribution(CodeBuilder& os, Loop& loop)
 {
-  os << "{ ";
+  os.openBlock();
   os << " uint64_t tripCount" << loop.body.depth << "=";
   if (loop.body.depth > 0){
     os << "tripCount" << (loop.body.depth-1) << "*";
@@ -627,24 +627,19 @@ ComputeVisitor::addLoopContribution(std::ostream& os, Loop& loop)
     }
   }
   os << "(" << loop.tripCount << "); ";
-  if (loop.body.flops > 0){
-      os << " flops += tripCount" << loop.body.depth << "*" << loop.body.flops << ";";
-  }
-  if (loop.body.readBytes > 0){
-    os << " readBytes += tripCount" << loop.body.depth << "*" << loop.body.readBytes << ";";
-  }
-  if (loop.body.writeBytes > 0){
-    os << " writeBytes += tripCount" << loop.body.depth << "*" << loop.body.writeBytes << ";";
-  }
-  if (loop.body.intops > 0){
-      os << " intops += tripCount" << loop.body.depth << "*" << loop.body.intops << ";";
+  for (size_t d = 0; d < kNumGpuCostDims; ++d){
+    int n = loop.body.counts[d];
+    if (n > 0){
+      os << " " << kGpuCostDims[d].accumVar << " += tripCount" << loop.body.depth
+         << "*" << n << ";";
+    }
   }
 
   auto end = loop.body.subLoops.end();
   for (auto iter=loop.body.subLoops.begin(); iter != end; ++iter){
     addLoopContribution(os, *iter);
   }
-  os << "}";
+  os.closeBlock();
 }
 
 void
@@ -653,11 +648,12 @@ ComputeVisitor::setContext(Stmt* stmt){
 }
 
 void
-ComputeVisitor::emitCostAccumulation(std::ostream& os, Loop& loop)
+ComputeVisitor::emitCostAccumulation(CodeBuilder& os, Loop& loop)
 {
-  // Emit F/I/R/W accumulators over the (possibly nested) loop tree; factored from
-  // replaceStmt so CUDA launch rewrite can reuse without sst_hg_compute_detailed.
-  os << "uint64_t flops=0; uint64_t readBytes=0; uint64_t writeBytes=0; uint64_t intops=0; ";
+  // Emit one uint64_t accumulator per cost dimension over the (possibly nested)
+  // loop tree; factored from replaceStmt so the CUDA launch rewrite can reuse it
+  // without sst_hg_compute_detailed.
+  for (const auto& dim : kGpuCostDims) os << "uint64_t " << dim.accumVar << "=0; ";
   addLoopContribution(os, loop);
 }
 
@@ -679,29 +675,30 @@ ComputeVisitor::deriveKernelCost(Stmt* body, std::string& accumOut)
   }
   // Loops need launch-site locals; fall back to zero+warn.
   if (sawLoop_) return false;
-  std::stringstream os;
+  CodeBuilder os(getStart(body), "ComputeVisitor::deriveKernelCost");
   emitCostAccumulation(os, loop);
-  accumOut = os.str();
+  accumOut = os.take();
   return true;
 }
 
 void
 ComputeVisitor::replaceStmt(Stmt* stmt, Loop& loop, const std::string& nthread)
 {
-  std::stringstream sstr;
-  sstr << "{ ";
+  CodeBuilder sstr(getStart(stmt), "ComputeVisitor::replaceStmt");
+  sstr.openBlock();
   emitCostAccumulation(sstr, loop);
   auto iter = CompilerGlobals::astNodeMetadata.computeMemoryOverrides.find(stmt);
   if (iter != CompilerGlobals::astNodeMetadata.computeMemoryOverrides.end()){
-    sstr << "readBytes=" << iter->second << ";";
+    sstr << kGpuCostDims[GPU_COST_READ_BYTES].accumVar << "=" << iter->second << ";";
   }
 
   if (nthread.empty()){
-    sstr << "sst_hg_compute_detailed(flops,intops,readBytes); }";
+    sstr << "sst_hg_compute_detailed(flops,intops,readBytes); ";
   } else {
     sstr << "sst_hg_compute_detailed_nthr(flops,intops,readBytes,"
-         << nthread << "); }";
+         << nthread << "); ";
   }
-  replace(stmt,sstr.str());
+  sstr.closeBlock();
+  replace(stmt,sstr.take());
 }
 

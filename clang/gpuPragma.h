@@ -18,17 +18,18 @@ Questions? Contact sst-macro-help@sandia.gov
 #define bin_clang_gpuPragma_h
 
 #include "pragmas.h"
+#include "gpuCostModel.h"
 
+#include <array>
 #include <list>
 #include <map>
 #include <string>
 
-/* Per-thread cost expressions passed to sst_hg_cuda_launch (default "0"). */
+/* Per-thread cost expressions passed to sst_hg_cuda_launch, one per
+ * kGpuCostDims entry, in table order (default "0"). */
 struct GpuComputeCost {
-  std::string flops = "0";
-  std::string intops = "0";
-  std::string bytesRead = "0";
-  std::string bytesWritten = "0";
+  std::array<std::string, kNumGpuCostDims> exprs;
+  GpuComputeCost() { exprs.fill("0"); }
 };
 
 /* #pragma sst gpu_compute: attach manual costs to a kernel decl or launch stmt. */

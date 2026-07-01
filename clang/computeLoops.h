@@ -45,27 +45,30 @@ Questions? Contact sst-macro-help@sandia.gov
 #ifndef bin_clang_compute_loops_h
 #define bin_clang_compute_loops_h
 
+#include <array>
 #include <list>
 #include <string>
+
+#include "gpuCostModel.h"
 
 struct Loop {
   struct Body {
     int depth;
-    int flops;
-    int intops;
-    int writeBytes;
-    int readBytes;
+    // One accumulated count per kGpuCostDims entry. Increment through the named
+    // accessors below so call sites read by meaning; emitters iterate counts[].
+    std::array<int, kNumGpuCostDims> counts{};
+
+    int& flops()      { return counts[GPU_COST_FLOPS]; }
+    int& intops()     { return counts[GPU_COST_INTOPS]; }
+    int& readBytes()  { return counts[GPU_COST_READ_BYTES]; }
+    int& writeBytes() { return counts[GPU_COST_WRITE_BYTES]; }
+
     bool hasBranchPrediction() const {
       return branchPrediction.size() > 0;
     }
     std::string branchPrediction;
     std::list<Loop> subLoops;
-    Body() : 
-      flops(0), 
-      intops(0), 
-      writeBytes(0),
-      readBytes(0)
-    {}
+    Body() = default;
   };
 
 

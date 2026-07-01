@@ -45,6 +45,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #define bin_clang_compute_visitor_h
 
 #include "clangHeaders.h"
+#include "codeBuilder.h"
 #include "computeLoops.h"
 #include "dataFlow.h"
 #include "pragmas.h"
@@ -66,7 +67,7 @@ class ComputeVisitor  {
   void addOperations(clang::Stmt* stmt, Loop::Body& body, bool isLHS = false);
 
   // Sum F/I/R/W over the loop tree (no sst_hg_compute_detailed call).
-  void emitCostAccumulation(std::ostream& os, Loop& loop);
+  void emitCostAccumulation(CodeBuilder& os, Loop& loop);
 
   // Derive per-thread cost accumulation for CUDA launch rewrite; false if unsupported.
   bool deriveKernelCost(clang::Stmt* body, std::string& accumOut);
@@ -174,7 +175,7 @@ class ComputeVisitor  {
 
   std::string getTripCount(ForLoopSpec* spec);
 
-  void addLoopContribution(std::ostream& os, Loop& loop);
+  void addLoopContribution(CodeBuilder& os, Loop& loop);
 
 };
 

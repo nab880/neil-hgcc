@@ -46,6 +46,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #include "replacePragma.h"
 #include "computePragma.h"
 #include "gpuPragma.h"
+#include "codeBuilder.h"
 #include "computeVisitor.h"
 #include "clang/AST/Mangle.h"
 #include  <sys/time.h>
@@ -1215,6 +1216,13 @@ SkeletonASTVisitor::mangleKernelName(FunctionDecl* kernel)
   return stripDeviceStub(out);
 }
 
+// Tripwire: the launch rewrite emits exactly kNumGpuCostDims trailing cost args,
+// which must match sst_hg_cuda_launch's C prototype (hg_cuda.h). If you change
+// the cost table, update that prototype + bump the ABI version, then this count.
+static_assert(kNumGpuCostDims == 4,
+              "sst_hg_cuda_launch ABI (hg_cuda.h) expects 4 cost args; update the "
+              "prototype and SST_HG_CUDA_ABI_VERSION before changing kGpuCostDims");
+
 void
 SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
 {
@@ -1259,8 +1267,12 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
     }
   }
 
-  std::stringstream os;
-  os << "({ dim3 __sst_g_" << id << " = (" << gridStr << "); "
+  // CodeBuilder tracks bracket balance across this emission: every scope opened
+  // through it must be closed, or take() aborts with a located error instead of
+  // the malformed text reaching the downstream compiler.
+  CodeBuilder os(getStart(expr), "rewriteCudaLaunch");
+  os.openStmtExpr();
+  os << "dim3 __sst_g_" << id << " = (" << gridStr << "); "
      << "dim3 __sst_b_" << id << " = (" << blockStr << "); ";
 
   std::string costArgs;
@@ -1288,11 +1300,13 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
 
     // Bind builtins/params and run the derived accumulation inside a lambda so
     // that kernel parameter names (which may collide with gridDim/blockDim/
-    // threadIdx/blockIdx or the flops/intops/readBytes/writeBytes accumulators)
-    // are confined to an inner scope. The lambda returns the four cost values
-    // into uniquely-named outer variables. threadIdx/blockIdx pinned to 0.
-    os << "struct { unsigned long long f, i, r, w; } __sst_cost_" << id
-       << " = [&]{ ";
+    // threadIdx/blockIdx or the cost accumulators) are confined to an inner
+    // scope. The lambda returns one value per cost dimension into a struct with
+    // uniquely-named members. threadIdx/blockIdx pinned to 0.
+    os << "struct { unsigned long long ";
+    for (size_t d = 0; d < kNumGpuCostDims; ++d) os << (d ? ", " : "") << "m" << d;
+    os << "; } __sst_cost_" << id << " = ";
+    os.openLambda();
     if (!paramNames.count("gridDim"))
       os << "dim3 gridDim = __sst_g_" << id << "; (void)gridDim; ";
     if (!paramNames.count("blockDim"))
@@ -1311,15 +1325,28 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
         os << "(void)__sst_arg" << id << "_" << i << "; ";
       }
     }
-    // derivedAccum declares its own flops/intops/readBytes/writeBytes. Nest it in
-    // its own block so those declarations shadow (rather than redeclare) any
-    // like-named kernel parameter bound above, then hoist the results out.
-    os << "unsigned long long __sst_f=0,__sst_i=0,__sst_r=0,__sst_w=0; { "
-       << derivedAccum
-       << " __sst_f=flops; __sst_i=intops; __sst_r=readBytes; __sst_w=writeBytes; } ";
-    os << "return decltype(__sst_cost_" << id << "){__sst_f, __sst_i, __sst_r, __sst_w}; }(); ";
-    costArgs = "__sst_cost_" + std::to_string(id) + ".f, __sst_cost_" + std::to_string(id)
-             + ".i, __sst_cost_" + std::to_string(id) + ".r, __sst_cost_" + std::to_string(id) + ".w";
+    // derivedAccum declares its own cost accumulators (the kGpuCostDims accumVars).
+    // Nest it in its own block so those declarations shadow (rather than
+    // redeclare) any like-named kernel parameter bound above, then hoist each
+    // result into a uniquely-named holder. All three lists below iterate the cost
+    // table so accumulator names and ABI arg order can't drift.
+    os << "unsigned long long ";
+    for (size_t d = 0; d < kNumGpuCostDims; ++d)
+      os << (d ? "," : "") << "__sst_h" << d << "=0";
+    os << "; ";
+    os.openBlock();
+    os << derivedAccum;
+    for (size_t d = 0; d < kNumGpuCostDims; ++d)
+      os << " __sst_h" << d << "=" << kGpuCostDims[d].accumVar << ";";
+    os.closeBlock();
+    os << "return decltype(__sst_cost_" << id << "){";
+    for (size_t d = 0; d < kNumGpuCostDims; ++d)
+      os << (d ? ", " : "") << "__sst_h" << d;
+    os << "}; ";
+    os.closeLambda();
+    os << "(); ";
+    for (size_t d = 0; d < kNumGpuCostDims; ++d)
+      costArgs += (d ? ", " : "") + ("__sst_cost_" + std::to_string(id) + ".m" + std::to_string(d));
   } else {
     // Preserve side-effecting launch args when the kernel is not executed.
     for (unsigned i = 0; i < expr->getNumArgs(); ++i){
@@ -1328,20 +1355,19 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
         os << "(void)(" << printWithGlobalsReplaced(arg) << "); ";
       }
     }
-    std::string F = cost ? cost->flops : "0";
-    std::string I = cost ? cost->intops : "0";
-    std::string R = cost ? cost->bytesRead : "0";
-    std::string W = cost ? cost->bytesWritten : "0";
-    costArgs = F + ", " + I + ", " + R + ", " + W;
+    // Pragma (or "0" default) expressions, joined in cost-table order.
+    for (size_t d = 0; d < kNumGpuCostDims; ++d)
+      costArgs += (d ? ", " : "") + (cost ? cost->exprs[d] : std::string("0"));
   }
 
   os << "sst_hg_cuda_launch(\"" << kernelName << "\", "
      << "__sst_g_" << id << ".x, __sst_g_" << id << ".y, __sst_g_" << id << ".z, "
      << "__sst_b_" << id << ".x, __sst_b_" << id << ".y, __sst_b_" << id << ".z, "
      << "(" << shmemStr << "), (void*)(" << streamStr << "), "
-     << costArgs << "); })";
+     << costArgs << "); ";
+  os.closeStmtExpr();
 
-  ::replace(expr, os.str());
+  ::replace(expr, os.take());
 }
 
 bool

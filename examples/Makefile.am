@@ -87,6 +87,13 @@ CLEANFILES += $(EXAMPLES_OBJS) $(EXAMPLES_LIBS) $(MEMOIZE_DEMO_OBJ) \
 	examples/pragmas/blocking/demo_full/out.log
 
 EXTRA_DIST += examples/platform_file_hg_test.py \
+	examples/scale_topo.py \
+	examples/make_scaling_chart.py \
+	examples/fig_A_commswall.py \
+	examples/fig_B_3dsplit.py \
+	examples/fig_C_allreduce_fit.py \
+	examples/fig_D_overlap.py \
+	examples/fig_pipeline.py \
 	examples/mercury_hello/hello.cc examples/mercury_hello/hello.py examples/mercury_hello/run.sh \
 	examples/mercury_hello_pragma/hello_pragma.cc examples/mercury_hello_pragma/hello_pragma.py \
 	examples/mercury_hello_pragma/run.sh \
@@ -96,4 +103,25 @@ EXTRA_DIST += examples/platform_file_hg_test.py \
 	examples/pragmas/blocking/demo_full/blocking_app.cc \
 	examples/pragmas/blocking/demo_full/blocking_app.py \
 	examples/pragmas/blocking/demo_full/run.sh \
-	examples/pragmas/memoize/demo.cc
+	examples/pragmas/memoize/demo.cc \
+	examples/mercury_llm_train/train.cu examples/mercury_llm_train/train.py \
+	examples/mercury_llm_train/run.sh examples/mercury_llm_train/README.md \
+	examples/mercury_megatron/megatron.cu examples/mercury_megatron/megatron.py \
+	examples/mercury_megatron/run.sh examples/mercury_megatron/README.md \
+	examples/mercury_3d/parallel3d.cu examples/mercury_3d/parallel3d.py \
+	examples/mercury_3d/run.sh examples/mercury_3d/factorization_sweep.sh \
+	examples/mercury_3d/README.md \
+	examples/mercury_fsdp/fsdp.cu examples/mercury_fsdp/fsdp.py \
+	examples/mercury_fsdp/run.sh examples/mercury_fsdp/README.md \
+	examples/mercury_inference/infer.cu examples/mercury_inference/infer.py \
+	examples/mercury_inference/run.sh examples/mercury_inference/README.md \
+	examples/mercury_context/ring_attn.cu examples/mercury_context/ring_attn.py \
+	examples/mercury_context/run.sh examples/mercury_context/README.md \
+	examples/mercury_moe/moe.cu examples/mercury_moe/moe.py \
+	examples/mercury_moe/skew_sweep.sh \
+	examples/mercury_moe/README.md \
+	examples/mercury_cuda_halo/halo.cu examples/mercury_cuda_halo/halo.py \
+	examples/mercury_cuda_halo/run.sh examples/mercury_cuda_halo/gpu_calibration.json \
+	examples/mercury_cuda_halo/README.md \
+	examples/validation/analytic_baseline.py examples/validation/validate.sh \
+	examples/validation/README.md

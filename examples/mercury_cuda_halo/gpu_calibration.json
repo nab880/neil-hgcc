@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "kernels": {
+    "_Z7stencilPfi": [
+      { "threads": 262144,  "seconds": 8.0e-6 },
+      { "threads": 1048576, "seconds": 2.8e-5 },
+      { "threads": 4194304, "seconds": 1.05e-4 }
+    ]
+  }
+}

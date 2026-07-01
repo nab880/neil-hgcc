@@ -16,6 +16,10 @@ int   sst_hg_cuda_is_device_ptr(const void* p);
 void  sst_hg_cuda_memcpy(void* dst, const void* src, uint64_t bytes,
                          int kind /* cudaMemcpyKind */,
                          void* stream /* 0 = default */);
+/* The trailing cost args (flops..bytesWritten) mirror clang/gpuCostModel.h's
+ * kGpuCostDims, in table order. If you add/remove a dimension there, update this
+ * prototype and bump SST_HG_CUDA_ABI_VERSION; a static_assert in the launch
+ * rewriter (astVisitor.cc) trips until the counts agree. */
 void  sst_hg_cuda_launch(const char* kernelName,
                          uint32_t gx, uint32_t gy, uint32_t gz,
                          uint32_t bx, uint32_t by, uint32_t bz,

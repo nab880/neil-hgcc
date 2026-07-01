@@ -41,6 +41,6 @@ int main() {
 // The un-annotated straight-line kernel derives a cost and passes the
 // accumulated values from the cost lambda (not 0,0,0,0):
 // CHECK: sst_hg_cuda_launch("_Z7derivedPi"
-// CHECK: __sst_cost_2.f, __sst_cost_2.i
-// CHECK: __sst_cost_2.r
-// CHECK: __sst_cost_2.w);
+// CHECK: __sst_cost_2.m0, __sst_cost_2.m1
+// CHECK: __sst_cost_2.m2
+// CHECK: __sst_cost_2.m3);

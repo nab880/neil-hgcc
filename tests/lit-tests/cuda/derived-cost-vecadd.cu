@@ -32,5 +32,5 @@ int main() {
 // CHECK: readBytes += tripCount0 * 8;
 // CHECK: writeBytes += tripCount0 * 4;
 // CHECK: sst_hg_cuda_launch("_Z6vecAddPKfS0_Pfi"
-// CHECK: __sst_cost_0.f, __sst_cost_0.i
-// CHECK: __sst_cost_0.r, __sst_cost_0.w);
+// CHECK: __sst_cost_0.m0, __sst_cost_0.m1
+// CHECK: __sst_cost_0.m2, __sst_cost_0.m3);

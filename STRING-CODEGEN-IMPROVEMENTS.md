@@ -175,10 +175,18 @@ text.
 - Build the plugin; run the full `tests/lit-tests/cuda/` and
   `tests/lit-tests/pragmas/` suites. Output is byte-identical, so every existing
   `CHECK` still matches — that is the regression guard for "no behavior change."
-- Add one deliberately-broken emission behind `#ifdef SST_HG_CODEGEN_SELFTEST`
-  (or a gtest if the plugin grows one) that opens a block and calls `take()`
-  without closing, asserting `errorAbort` fires. This proves the guard works
-  without shipping a way to trigger it.
+- The guard was verified by temporarily omitting `os.closeStmtExpr()` in
+  `rewriteCudaLaunch`, rebuilding, and confirming the plugin aborts *before*
+  emitting `sst.pp.*` with a located message:
+
+  ```
+  derived-cost-vecadd.cu:21:3: error: internal codegen error in
+    rewriteCudaLaunch: unbalanced '{' (depth 1) at end of emission
+  ```
+
+  The imbalance was then reverted (no test-only code path ships). A permanent
+  self-test would need a gtest harness the plugin doesn't currently have; the
+  manual check is the pragmatic equivalent until then.
 
 ### Optional follow-on (not required)
 

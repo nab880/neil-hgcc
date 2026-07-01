@@ -46,6 +46,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #include "replacePragma.h"
 #include "computePragma.h"
 #include "gpuPragma.h"
+#include "codeBuilder.h"
 #include "computeVisitor.h"
 #include "clang/AST/Mangle.h"
 #include  <sys/time.h>
@@ -1266,8 +1267,12 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
     }
   }
 
-  std::stringstream os;
-  os << "({ dim3 __sst_g_" << id << " = (" << gridStr << "); "
+  // CodeBuilder tracks bracket balance across this emission: every scope opened
+  // through it must be closed, or take() aborts with a located error instead of
+  // the malformed text reaching the downstream compiler.
+  CodeBuilder os(getStart(expr), "rewriteCudaLaunch");
+  os.openStmtExpr();
+  os << "dim3 __sst_g_" << id << " = (" << gridStr << "); "
      << "dim3 __sst_b_" << id << " = (" << blockStr << "); ";
 
   std::string costArgs;
@@ -1300,7 +1305,8 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
     // uniquely-named members. threadIdx/blockIdx pinned to 0.
     os << "struct { unsigned long long ";
     for (size_t d = 0; d < kNumGpuCostDims; ++d) os << (d ? ", " : "") << "m" << d;
-    os << "; } __sst_cost_" << id << " = [&]{ ";
+    os << "; } __sst_cost_" << id << " = ";
+    os.openLambda();
     if (!paramNames.count("gridDim"))
       os << "dim3 gridDim = __sst_g_" << id << "; (void)gridDim; ";
     if (!paramNames.count("blockDim"))
@@ -1327,13 +1333,18 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
     os << "unsigned long long ";
     for (size_t d = 0; d < kNumGpuCostDims; ++d)
       os << (d ? "," : "") << "__sst_h" << d << "=0";
-    os << "; { " << derivedAccum;
+    os << "; ";
+    os.openBlock();
+    os << derivedAccum;
     for (size_t d = 0; d < kNumGpuCostDims; ++d)
       os << " __sst_h" << d << "=" << kGpuCostDims[d].accumVar << ";";
-    os << " } return decltype(__sst_cost_" << id << "){";
+    os.closeBlock();
+    os << "return decltype(__sst_cost_" << id << "){";
     for (size_t d = 0; d < kNumGpuCostDims; ++d)
       os << (d ? ", " : "") << "__sst_h" << d;
-    os << "}; }(); ";
+    os << "}; ";
+    os.closeLambda();
+    os << "(); ";
     for (size_t d = 0; d < kNumGpuCostDims; ++d)
       costArgs += (d ? ", " : "") + ("__sst_cost_" + std::to_string(id) + ".m" + std::to_string(d));
   } else {
@@ -1353,9 +1364,10 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
      << "__sst_g_" << id << ".x, __sst_g_" << id << ".y, __sst_g_" << id << ".z, "
      << "__sst_b_" << id << ".x, __sst_b_" << id << ".y, __sst_b_" << id << ".z, "
      << "(" << shmemStr << "), (void*)(" << streamStr << "), "
-     << costArgs << "); })";
+     << costArgs << "); ";
+  os.closeStmtExpr();
 
-  ::replace(expr, os.str());
+  ::replace(expr, os.take());
 }
 
 bool

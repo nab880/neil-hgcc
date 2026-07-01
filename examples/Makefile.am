@@ -123,5 +123,10 @@ EXTRA_DIST += examples/platform_file_hg_test.py \
 	examples/mercury_cuda_halo/halo.cu examples/mercury_cuda_halo/halo.py \
 	examples/mercury_cuda_halo/run.sh examples/mercury_cuda_halo/gpu_calibration.json \
 	examples/mercury_cuda_halo/README.md \
+	examples/codesign/sweep_train.sh examples/codesign/sweep_infer.sh \
+	examples/codesign/bottleneck.sh examples/codesign/bottleneck_chart.py \
+	examples/codesign/pareto.py examples/codesign/README.md \
+	examples/memory_model/capacity.py examples/memory_model/frontier_sweep.sh \
+	examples/memory_model/README.md \
 	examples/validation/analytic_baseline.py examples/validation/validate.sh \
 	examples/validation/README.md

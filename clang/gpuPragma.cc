@@ -22,7 +22,11 @@ Questions? Contact sst-macro-help@sandia.gov
 using namespace clang;
 
 namespace {
-/* First-pass costs keyed by canonical decl and launch stmt. */
+/* First-pass costs keyed by canonical decl and launch stmt. These are
+ * process-global with no reset, which is correct under SST's one-translation-
+ * unit-per-process model (the plugin runs once per compile). If a future
+ * batching/test harness ever reuses the process across TUs, these must be
+ * cleared between units or they will bleed stale costs. */
 std::map<const Decl*, GpuComputeCost> g_declCosts;
 std::map<const Stmt*, GpuComputeCost> g_stmtCosts;
 

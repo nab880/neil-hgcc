@@ -82,6 +82,17 @@ class ComputeVisitor  {
   // CUDA cost derivation: assume if taken; loops -> sawLoop_ and zero+warn fallback.
   bool derivingKernelCost_ = false;
   bool sawLoop_ = false;
+
+  // Thrown to unwind out of a construct we cannot cost while deriving a CUDA
+  // kernel cost; deriveKernelCost catches it and falls back to zero+warn instead
+  // of the errorAbort()/exit() that a normal skeletonization would take.
+  struct DerivationBail {};
+
+  // While deriving a kernel cost, unwind gracefully; otherwise abort as usual.
+  void bailIfDeriving(const clang::Stmt* s, const std::string& msg){
+    if (derivingKernelCost_) throw DerivationBail{};
+    errorAbort(s, msg);
+  }
   std::map<MemoryLocation,AccessHistory,MemoryLocationCompare> arrays;
   std::map<clang::NamedDecl*,Variable> variables;
   clang::SourceLocation scopeStartLine;

@@ -736,6 +736,7 @@ SkeletonASTVisitor::addTransitiveNullInformation(NamedDecl* decl, std::ostream& 
   while (transPrg){
     nd = transPrg->getAppliedDecl();
     if (nd) os << "->" << nd->getNameAsString();
+    transPrg = transPrg->getTransitive();
   }
 }
 
@@ -1156,6 +1157,24 @@ isSideEffectFreeLaunchArg(const Expr* e)
   }
 }
 
+// A __global__ kernel or device-only (__device__ without __host__) function.
+// Its body is device code host-only skeletonization must not rewrite.
+static bool
+isCudaDeviceCode(const clang::FunctionDecl* D)
+{
+  if (!CompilerGlobals::CI().getLangOpts().CUDA || !D->hasAttrs()) return false;
+  bool isGlobal = false, isDevice = false, isHost = false;
+  for (const Attr* attr : D->getAttrs()){
+    switch (attr->getKind()){
+      case attr::CUDAGlobal: isGlobal = true; break;
+      case attr::CUDADevice: isDevice = true; break;
+      case attr::CUDAHost: isHost = true; break;
+      default: break;
+    }
+  }
+  return isGlobal || (isDevice && !isHost);
+}
+
 // Host stub mangling embeds __device_stub__; strip it for calibration keys.
 static std::string
 stripDeviceStub(const std::string& mangled)
@@ -1166,7 +1185,13 @@ stripDeviceStub(const std::string& mangled)
   size_t numEnd = pos, numBeg = pos;
   while (numBeg > 0 && std::isdigit((unsigned char)mangled[numBeg - 1])) --numBeg;
   if (numBeg == numEnd) return mangled;
-  size_t len = static_cast<size_t>(std::stoul(mangled.substr(numBeg, numEnd - numBeg)));
+  size_t len;
+  try {
+    len = static_cast<size_t>(std::stoul(mangled.substr(numBeg, numEnd - numBeg)));
+  } catch (const std::exception&) {
+    // Pathological length prefix (out_of_range); leave the name untouched.
+    return mangled;
+  }
   size_t newLen = len > stub.size() ? len - stub.size() : 0;
   if (newLen == 0) return mangled;
   return mangled.substr(0, numBeg) + std::to_string(newLen) +
@@ -1240,14 +1265,42 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
 
   std::string costArgs;
   if (haveDerived){
-    // Bind builtins/params at launch site; threadIdx/blockIdx pinned to 0.
-    os << "dim3 gridDim = __sst_g_" << id << ", blockDim = __sst_b_" << id << "; "
-       << "dim3 threadIdx(0,0,0), blockIdx(0,0,0); ";
     // Capture args into temps first to preserve side effects and avoid self-ref.
+    // Done in the outer scope so side effects run exactly once even if the cost
+    // lambda below is (it isn't) skipped.
     for (unsigned i = 0; i < expr->getNumArgs(); ++i){
       os << "auto __sst_arg" << id << "_" << i << " = ("
          << printWithGlobalsReplaced(expr->getArg(i)) << "); ";
     }
+    if (derivedAccum.find("threadIdx") != std::string::npos ||
+        derivedAccum.find("blockIdx") != std::string::npos){
+      warn(getStart(expr), "derived CUDA kernel cost depends on threadIdx/blockIdx; "
+                           "pinned to 0 (conservative upper bound on per-thread work)");
+    }
+    // Collect parameter names so we can skip any synthetic builtin (gridDim/
+    // blockDim/threadIdx/blockIdx) a parameter shadows -- a kernel may legally
+    // name a parameter "gridDim". The parameter binding then supplies that name.
+    std::set<std::string> paramNames;
+    for (unsigned i = 0; i < expr->getNumArgs() && i < kernel->getNumParams(); ++i){
+      std::string pn = kernel->getParamDecl(i)->getNameAsString();
+      if (!pn.empty()) paramNames.insert(pn);
+    }
+
+    // Bind builtins/params and run the derived accumulation inside a lambda so
+    // that kernel parameter names (which may collide with gridDim/blockDim/
+    // threadIdx/blockIdx or the flops/intops/readBytes/writeBytes accumulators)
+    // are confined to an inner scope. The lambda returns the four cost values
+    // into uniquely-named outer variables. threadIdx/blockIdx pinned to 0.
+    os << "struct { unsigned long long f, i, r, w; } __sst_cost_" << id
+       << " = [&]{ ";
+    if (!paramNames.count("gridDim"))
+      os << "dim3 gridDim = __sst_g_" << id << "; (void)gridDim; ";
+    if (!paramNames.count("blockDim"))
+      os << "dim3 blockDim = __sst_b_" << id << "; (void)blockDim; ";
+    if (!paramNames.count("threadIdx"))
+      os << "dim3 threadIdx(0,0,0); (void)threadIdx; ";
+    if (!paramNames.count("blockIdx"))
+      os << "dim3 blockIdx(0,0,0); (void)blockIdx; ";
     for (unsigned i = 0; i < expr->getNumArgs(); ++i){
       std::string pname;
       if (i < kernel->getNumParams()) pname = kernel->getParamDecl(i)->getNameAsString();
@@ -1258,13 +1311,15 @@ SkeletonASTVisitor::rewriteCudaLaunch(CUDAKernelCallExpr* expr)
         os << "(void)__sst_arg" << id << "_" << i << "; ";
       }
     }
-    if (derivedAccum.find("threadIdx") != std::string::npos ||
-        derivedAccum.find("blockIdx") != std::string::npos){
-      warn(getStart(expr), "derived CUDA kernel cost depends on threadIdx/blockIdx; "
-                           "pinned to 0 (conservative upper bound on per-thread work)");
-    }
-    os << derivedAccum;
-    costArgs = "flops, intops, readBytes, writeBytes";
+    // derivedAccum declares its own flops/intops/readBytes/writeBytes. Nest it in
+    // its own block so those declarations shadow (rather than redeclare) any
+    // like-named kernel parameter bound above, then hoist the results out.
+    os << "unsigned long long __sst_f=0,__sst_i=0,__sst_r=0,__sst_w=0; { "
+       << derivedAccum
+       << " __sst_f=flops; __sst_i=intops; __sst_r=readBytes; __sst_w=writeBytes; } ";
+    os << "return decltype(__sst_cost_" << id << "){__sst_f, __sst_i, __sst_r, __sst_w}; }(); ";
+    costArgs = "__sst_cost_" + std::to_string(id) + ".f, __sst_cost_" + std::to_string(id)
+             + ".i, __sst_cost_" + std::to_string(id) + ".r, __sst_cost_" + std::to_string(id) + ".w";
   } else {
     // Preserve side-effecting launch args when the kernel is not executed.
     for (unsigned i = 0; i < expr->getNumArgs(); ++i){
@@ -2108,8 +2163,13 @@ SkeletonASTVisitor::TraverseFunctionDecl(clang::FunctionDecl* D)
   }
   if (D->isMain() && CompilerGlobals::refactorMain){
     replaceMain(D);
-  } else if (D->isTemplateInstantiation()   
-           || !D->isThisDeclarationADefinition()){
+  } else if (D->isTemplateInstantiation()){
+    // Non-definitions already returned above; only template instantiations skip
+    // here. An instantiated __global__/__device__ kernel is still device code we
+    // must strip so its body never reaches the host compile.
+    if (isCudaDeviceCode(D) && D->getBody() && !isInSystemHeader(getStart(D))){
+      ::replace(D->getBody(), "{}");
+    }
     return true;
   }
 
@@ -2138,19 +2198,7 @@ SkeletonASTVisitor::TraverseFunctionDecl(clang::FunctionDecl* D)
   // would be prepended to sst_hg_::free. We never traverse the body; for a user
   // kernel (not a system header) we also strip the body text so nothing
   // device-side reaches the host compile. __host__ __device__ is left intact.
-  bool cudaDeviceCode = false;
-  if (CompilerGlobals::CI().getLangOpts().CUDA && D->hasAttrs()){
-    bool isGlobal = false, isDevice = false, isHost = false;
-    for (Attr* attr : D->getAttrs()){
-      switch (attr->getKind()){
-        case attr::CUDAGlobal: isGlobal = true; break;
-        case attr::CUDADevice: isDevice = true; break;
-        case attr::CUDAHost: isHost = true; break;
-        default: break;
-      }
-    }
-    cudaDeviceCode = isGlobal || (isDevice && !isHost);
-  }
+  bool cudaDeviceCode = isCudaDeviceCode(D);
 
   try {
     PushGuard<FunctionDecl*> pg(CompilerGlobals::astContextLists.enclosingFunctionDecls, D);

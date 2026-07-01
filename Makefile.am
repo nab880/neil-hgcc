@@ -45,9 +45,10 @@ ssthg_clang_SOURCES = \
   clang/computePragma.cc \
   clang/computeVisitor.cc \
   clang/replacePragma.cc \
+  clang/gpuPragma.cc \
   clang/astConsumers.cc \
   clang/frontendActions.cc \
-  clang/astVisitor.cc 
+  clang/astVisitor.cc
 
 if USE_REPLACEMENT_HEADERS
 	nobase_library_include_HEADERS += \
@@ -119,10 +120,13 @@ endif
 install-data-local:
 	$(MKDIR_P) $(DESTDIR)$(includedir)/hgcc/libraries/pthread
 	cp $(srcdir)/hgcc_include/libraries/pthread/hgcc_pthread_spinlock.h $(DESTDIR)$(includedir)/hgcc/libraries/pthread/
+	cp $(srcdir)/hgcc_include/libraries/hg_cuda.h $(DESTDIR)$(includedir)/hgcc/libraries/
+	cp $(srcdir)/hgcc_include/libraries/sst_hg_cuda_calibrate.h $(DESTDIR)$(includedir)/hgcc/libraries/
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/sys
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/linux
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/mpi
+	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/cuda
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/libraries
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/libraries/pthread
 	cp -r $(srcdir)/replacements/* $(DESTDIR)$(includedir)/replacements/
@@ -184,10 +188,13 @@ else
 install-data-local:
 	$(MKDIR_P) $(DESTDIR)$(includedir)/hgcc/libraries/pthread
 	cp $(srcdir)/hgcc_include/libraries/pthread/hgcc_pthread_spinlock.h $(DESTDIR)$(includedir)/hgcc/libraries/pthread/
+	cp $(srcdir)/hgcc_include/libraries/hg_cuda.h $(DESTDIR)$(includedir)/hgcc/libraries/
+	cp $(srcdir)/hgcc_include/libraries/sst_hg_cuda_calibrate.h $(DESTDIR)$(includedir)/hgcc/libraries/
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/sys
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/linux
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/mpi
+	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/cuda
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/libraries
 	$(MKDIR_P) $(DESTDIR)$(includedir)/replacements/libraries/pthread
 	cp -r $(srcdir)/replacements/* $(DESTDIR)$(includedir)/replacements/

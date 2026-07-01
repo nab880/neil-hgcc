@@ -52,6 +52,8 @@ sstLdFlags = [
 
 haveFloat128=@have_float_128@
 clangMajorVersion=@CLANG_MAJOR_VERSION@
+haveCudaSupport=@HAVE_CUDA_SUPPORT@
+defaultCudaArch="@DEFAULT_CUDA_ARCH@"
 clangCppFlagsStr="@CLANG_CPPFLAGS@"
 clangLdFlagsStr="@CLANG_LDFLAGS@"
 clangLibtoolingCxxFlagsStr="@CLANG_LIBTOOLING_CXX_FLAGS@ @MACSDK_CXXFLAGS@"

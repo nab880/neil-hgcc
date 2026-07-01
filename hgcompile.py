@@ -61,10 +61,7 @@ _CLANGXX_FALLBACK_WARNED = False
 _STD_FLOOR_WARNED = False
 
 def _warn_std_floor(stdlib_name, old_std, new_std):
-  """Once-per-process stderr warning when the AST -std= floor bumps the user's
-  requested dialect because the resolved C++ standard library headers require
-  it. This is a real semantic change: the same -std= is forced on ssthg_clang
-  parse, clang++ -E, and the host -c of the rewritten output."""
+  """Warn once when AST -std= is bumped for libstdc++/libc++ header requirements."""
   global _STD_FLOOR_WARNED
   if _STD_FLOOR_WARNED:
     return
@@ -79,10 +76,7 @@ def _warn_std_floor(stdlib_name, old_std, new_std):
 
 
 def _warn_clangxx_fallback(where):
-  """Once-per-process stderr warning when a C++ step falls back to ctx.compiler
-  instead of the LLVM clang++ that ssthg_clang was built against. Mismatch
-  between -E / ssthg_clang / host -c produces 'no template named __builtin_*'
-  errors that look mysterious; this points at the actual cause."""
+  """Warn once when a C++ step falls back to ctx.compiler instead of LLVM clang++."""
   global _CLANGXX_FALLBACK_WARNED
   if _CLANGXX_FALLBACK_WARNED:
     return
@@ -94,6 +88,20 @@ def _warn_clangxx_fallback(where):
       "__is_referenceable). Re-configure sst-hgcc with "
       "--with-clang=<llvm-install> matching the compiler you intend to use.\n"
       % where)
+
+
+def _is_cuda_source(path):
+  """True for .cu paths; pp/sst.pp intermediates preserve the suffix."""
+  return bool(path) and path.endswith(".cu")
+
+
+def _cuda_lang_flags(args):
+  """Clang flags for toolkit-free CUDA host-only parsing."""
+  arch = getattr(args, "cuda_gpu_arch", None) or "sm_70"
+  return ["-x", "cuda", "--cuda-host-only", "-nocudainc", "-nocudalib",
+          "--cuda-gpu-arch=%s" % arch,
+          "-D__host__=__attribute__((host))",
+          "-D__device__=__attribute__((device))"]
 
 
 def _argv_drop_compiler_leader(argv):
@@ -142,13 +150,7 @@ def _filter_ast_host_flags(flags):
 
 
 def _strip_include_directives(argv):
-  """Remove -include and its path from argv.
-
-  addSrc2SrcCompile runs gcc -E with the same -D/-I/-include as the host
-  compile, then passes the preprocessed file to ssthg_clang. Re-applying
-  -include on the pp file pulls headers twice (redefinition of static
-  inlines in skeleton.h, glibc typedef conflicts in bits/types.h).
-  """
+  """Remove -include from argv (pp file must not re-include skeleton.h)."""
   out = []
   i = 0
   n = len(argv)
@@ -194,12 +196,7 @@ def host_compile_argv_for_ast(ctx, args):
 
 
 def _path_match_keys(p):
-  """Return canonical-equivalent keys for a filesystem path.
-
-  Includes both abspath and realpath so a compile_commands lookup matches
-  across symlinks (brew Cellar) and macOS APFS firmlinks (/tmp <-> /private/
-  tmp, /var <-> /private/var). Falls back to the input on resolution errors.
-  """
+  """Canonical path keys (abspath + realpath) for compile_commands lookup."""
   if not p:
     return frozenset()
   keys = set()
@@ -271,23 +268,7 @@ def apply_ast_gnuxx_remap(argv, ast_gnuxx_remap):
 
 
 def _pp_compiler_flags_match_ast_std(ctx, args, ast_base_argv, sstStdFlag):
-  """Align host g++ -std= with ssthg_clang after apply_ast_libstdcxx_cpp14_floor / gnuxx remap.
-
-  Used for: clang++ -E, and compiler flags for the sst.pp.* / sstGlobals compile
-  (driver may be clang++ or g++; see use_clangxx_host in addSrc2SrcCompile).
-
-  If the preprocessor uses c++11 while ssthg_clang uses c++14+, libstdc++ <utility>
-  is expanded for GCC (__integer_pack); Clang then cannot parse the .ii file.
-  If the final driver is g++ at c++14, libstdc++ may still use Clang builtins
-  (__make_integer_seq) that g++ does not provide; use clang++ -c with libstdc++.
-
-  Assumption: ctx.compilerFlags does not carry gcc-only diagnostic flags that
-  Clang rejects as errors. On most hosts this holds because the flags come from
-  SST_CXXFLAGS / STD_CXXFLAGS (both vetted against clang at configure time).
-  If a user prepends gcc-specific warning flags (e.g. -Wno-maybe-uninitialized)
-  via CXXFLAGS, they will reach clang++ -c on the use_clangxx_host path and
-  produce unknown-warning-option diagnostics.
-  """
+  """Align host -std= with ssthg_clang after libstdc++/libc++ floors and gnuxx remap."""
   out = list(ctx.compilerFlags)
   if ctx.typ != "c++":
     return out
@@ -303,13 +284,7 @@ def _pp_compiler_flags_match_ast_std(ctx, args, ast_base_argv, sstStdFlag):
 
 
 def apply_ast_libstdcxx_cpp14_floor(argv, enabled):
-  """Raise C++11 dialect for ssthg_clang parse when using libstdc++ with Clang.
-
-  libstdc++ 9+ uses __has_builtin(__make_integer_seq) in <utility>; g++ -E
-  still expands the __integer_pack branch (GCC builtin), so ssthg_clang must
-  not parse g++-preprocessed libstdc++. We also use clang++ -E for C++/libstdc++
-  (see addPreprocess). -std=c++14+ is still required for the preprocessor.
-  """
+  """Raise C++11 to C++14 for ssthg_clang when using libstdc++ with Clang."""
   if not enabled:
     return argv
   out = []
@@ -331,12 +306,7 @@ def apply_ast_libstdcxx_cpp14_floor(argv, enabled):
 
 
 def apply_ast_libcxx_cpp17_floor(argv, enabled):
-  """Raise dialect to C++17 for ssthg_clang parse when using libc++.
-
-  libc++ shipping with LLVM 18+ assumes C++17 in many headers (concepts,
-  __builtin_common_type, etc). A user passing -std=c++14 with libc++ would
-  otherwise produce parse errors inside libc++ itself.
-  """
+  """Raise pre-C++17 dialect to C++17 for ssthg_clang when using libc++."""
   if not enabled:
     return argv
   pre17_cxx = ("-std=c++11", "-std=c++0x", "-std=c++14", "-std=c++1y")
@@ -461,6 +431,7 @@ def addPreprocess(
     clang_cc_for_linux_preprocess=None,
     stdlib_flag="libstdc++",
 ):
+  cuda = _is_cuda_source(sourceFile)
   if use_clang_cpp_for_e and ctx.typ == "c++":
     if clang_exe_for_preprocess:
       clang_pp = clang_exe_for_preprocess
@@ -475,12 +446,22 @@ def addPreprocess(
     if clang_pp:
       ppArgs = [clang_pp, "-stdlib=%s" % stdlib_flag]
     else:
+      if cuda:
+        sys.exit("hgcc: error: preprocessing %s requires the configured LLVM "
+                 "clang++, and none was resolved from hgccvars.clangDir or "
+                 "-I flags; re-configure sst-hgcc with "
+                 "--with-clang=<llvm-install>" % sourceFile)
       _warn_clangxx_fallback("addPreprocess (-E)")
       ppArgs = [ctx.compiler]
   elif clang_cc_for_linux_preprocess:
     ppArgs = [clang_cc_for_linux_preprocess, "-fgnuc-version=10"]
   else:
     ppArgs = [ctx.compiler]
+  if cuda:
+    if not (use_clang_cpp_for_e and ctx.typ == "c++"):
+      sys.exit("hgcc: error: %s must be driven as C++ (use hg++); the C "
+               "driver cannot preprocess CUDA" % sourceFile)
+    ppArgs.extend(_cuda_lang_flags(args))
   ppArgs.extend(map(lambda x: "-D%s" % x, ctx.defines))
   ppArgs.extend(map(lambda x: "-D%s" % x, args.D))
   ppArgs.extend(map(lambda x: "-I%s" % x, args.I)) 
@@ -504,6 +485,8 @@ def addEmitLlvm(ctx, sourceFile, outputFile, args, cmds, plan=None):
   cmdArr.extend(["-emit-llvm", "-S"])
   if plan is None or not plan.use_clangxx_host:
     cmdArr.append("--no-integrated-cpp")
+  if _is_cuda_source(sourceFile):
+    cmdArr.extend(["-x", "c++"])
   cmdArr.extend([sourceFile, "-o", outputFile])
   if args.O:
     cmds.append("-O%s" % args.O)
@@ -562,6 +545,7 @@ class _Src2SrcPlan:
       "use_libcxx", "ast_gnuxx_remap", "cxx_resource",
       "base_argv", "host_cxx_flags_for_obj", "ast_resource_tokens",
       "clang_cc_linux", "clang_cxx_bin", "use_clangxx_host",
+      "cuda_flags",
   )
 
 
@@ -569,14 +553,12 @@ def _build_src2src_plan(ctx, sourceFile, args, _hv,
                         clangLibtoolingCxxFlagsStr,
                         clangLibtoolingCFlagsStr,
                         sstStdFlag):
-  """Resolve AST argv, -std alignment, and which clang binaries to use.
-
-  Returns a _Src2SrcPlan; does not modify ctx or touch cmds.
-  """
+  """Resolve AST argv, -std alignment, and clang binaries for src2src."""
   p = _Src2SrcPlan()
   p.use_libcxx = _hgcc_bool_attr(_hv, "useLibcxxForAst", False)
   p.ast_gnuxx_remap = _hgcc_bool_attr(_hv, "astGnuxxRemap", False)
   p.cxx_resource = getattr(_hv, "clangLibtoolingCxxResourceStr", "").strip()
+  p.cuda_flags = _cuda_lang_flags(args) if _is_cuda_source(sourceFile) else []
 
   # Build AST argv first so g++ -E uses the same -std= as ssthg_clang (libstdc++).
   base_argv = compile_commands_argv_for_source(sourceFile)
@@ -608,10 +590,7 @@ def _build_src2src_plan(ctx, sourceFile, args, _hv,
   else:
     p.ast_resource_tokens = [x for x in clangLibtoolingCFlagsStr.split() if x]
 
-  # g++ does not implement Clang's __make_integer_seq; libstdc++ can still pick
-  # that branch when __has_builtin matches. Use clang++ -c (with libstdc++) to
-  # match clang++ -E and ssthg_clang. Resolve clang++ even when hgccvars.clangDir
-  # is wrong (e.g. hg++ already uses clang++; or -I.../lib/clang/N/include).
+  # g++ lacks __make_integer_seq; use clang++ -E/-c with libstdc++ when resolved.
   pre_tokens = list(base_argv) + p.ast_resource_tokens
   p.clang_cc_linux = None
   if ctx.typ != "c++" and sys.platform.startswith("linux"):
@@ -663,8 +642,8 @@ def _build_ssthg_clang_cmd(ctx, plan, prefix, ppTmpFile, haveFloat128,
   cmd = [clangDeglobal, ppTmpFile]
   cmd.extend(ctx.clangArgs)
   cmd.append("--")
-  # Linux C: pp.* should come from clang -fgnuc-version=10 -E (see addPreprocess). Keep
-  # the same for any remaining parse so libc feature tests stay consistent.
+  cmd.extend(plan.cuda_flags)
+  # Linux C pp uses clang -fgnuc-version=10; keep the same for ssthg_clang parse.
   if ctx.typ != "c++" and sys.platform.startswith("linux"):
     cmd.append("-fgnuc-version=10")
 
@@ -695,9 +674,7 @@ def _build_ssthg_clang_cmd(ctx, plan, prefix, ppTmpFile, haveFloat128,
       cmd.append("-D_Float32x=double")
       cmd.append("-D_Float64x=long double")
       cmd.append("-D_Float128=long double")
-  # __builtin_clzg / __builtin_ctzg were added in LLVM 18. On older Clang we
-  # stub them to literal 0 so libc++ <bit> still parses; on >= 18 we must NOT
-  # define the macro or real call sites get silently rewritten to 0.
+  # Stub __builtin_clzg/ctzg on Clang < 18 so libc++ <bit> parses.
   if clangMajorVersion and clangMajorVersion < 18:
     cmd.append("-D__builtin_clzg(...)=0")
     cmd.append("-D__builtin_ctzg(...)=0")
@@ -724,6 +701,8 @@ def _build_host_obj_cmd(ctx, args, plan, srcRepl, tmpTarget):
     cmd.append("--no-integrated-cpp")
   cmd.append("-o")
   cmd.append(tmpTarget)
+  if _is_cuda_source(srcRepl):
+    cmd.extend(_cuda_lang_flags(args))
   cmd.append("-c")
   cmd.append(srcRepl)
   if args.O:
@@ -813,9 +792,7 @@ def addSrc2SrcCompile(ctx, sourceFile, outputFile, args, cmds):
         stdlib_flag="libc++" if plan.use_libcxx else "libstdc++",
     )
 
-  # System include roots for isInSystemHeader(). Use SSTHG_SYSTEM_INCLUDES so
-  # the subprocess does not need --system-includes (llvm::cl + CommonOptionsParser
-  # rejects that flag on some Apple/LLVM-linked ssthg_clang builds).
+  # System include roots via SSTHG_SYSTEM_INCLUDES (not --system-includes).
   _sys_paths = _normalize_default_include_paths(defaultIncludePaths)
   _extra_paths = _extra_system_includes_for_clang_dir(
       getattr(_hv, "clangDir", None))

@@ -104,8 +104,6 @@ AC_PROG_CXX
 AC_LANG([C++])
 AC_PROG_LN_S
 
-LT_INIT
-
 LT_INIT([shared disable-static])
 
 SST_CPPFLAGS=
@@ -145,6 +143,8 @@ CHECK_CXX_STD()
 
 CHECK_CLANG_LLVM()
 
+CHECK_CUDA_HOSTONLY()
+
 CHECK_SPACK()
 
 #-------------------------------------------------
@@ -180,5 +180,6 @@ echo
 
 echo "Python             $pyexe"
 echo "Clang Toolchain    $found_clang"
+echo "CUDA host-only     $have_cuda_support (default arch $default_cuda_arch)"
 echo "---------------------------------------------------------------"
 

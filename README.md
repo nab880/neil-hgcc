@@ -55,6 +55,14 @@ way it would under `mpirun`. A few things change:
   `compute_library_access_width`, `compute_library_loop_overhead`). Values are
   no longer meaningful; **time** is. Use `#pragma sst keep` to preserve real
   computation where you need it.
+- **GPU kernels are modeled, never executed.** A `.cu` compiled with `hg++`
+  has its `__global__` bodies stripped and each `kernel<<<grid,block>>>(...)`
+  launch lowered to the `sst_hg_cuda` ABI; the Mercury GPU library charges a
+  modeled time (roofline from grid/block and per-thread costs, or a measured
+  calibration table — see below) and a PCIe/HBM transfer time for `cudaMemcpy`.
+  Streams are independent timelines, so async launches and copies overlap host
+  compute and MPI. Device pointers are opaque cookies — their values are
+  meaningless; the kernel *time* is what the model reports.
 - **Globals and TLS are privatized.** All ranks live in one address space, so
   the rewriter rewrites globals and thread-locals to per-rank storage. The
   `tests/test_tls.cc` integration test demonstrates this — every rank prints
@@ -62,6 +70,62 @@ way it would under `mpirun`. A few things change:
 - **Time advances via platform params.** Wall-clock latency comes from the
   Merlin/Mercury platform definition (link latency/bandwidth, `post_rdma_delay`,
   `max_eager_msg_size`, etc.), not from the host CPU.
+
+### GPU kernel timing: roofline and the calibrate-once workflow
+
+By default a kernel's time is a **roofline** estimate from the simulated GPU
+params (`gpu_peak_flops`, `gpu_mem_bandwidth`, `gpu_kernel_launch_overhead`) and
+the per-thread costs the rewriter threads through the launch. Those costs are
+**derived automatically** from the kernel body (the compiler counts per-thread
+flops/intops/bytes for straight-line kernels; a body it cannot cost statically
+falls back to zero with a warning). `#pragma sst gpu_compute flops(...) intops(...)
+read(...) write(...)` on the kernel decl or the launch statement overrides the
+derived value when you know better. `cudaMemcpy` is modeled with `pcie_latency` /
+`pcie_bandwidth` (H2D/D2H) or `gpu_mem_bandwidth` (D2D).
+
+For single-node accuracy at scale, **calibrate once** on one real GPU node and
+let every simulated experiment inherit it. Point the platform param
+`gpu_kernel_times` at a JSON table keyed by the kernel's mangled name and total
+thread count; the model exact-matches the thread count or log-log interpolates
+between samples (clamped at the ends), and overrides the roofline for that
+kernel. A kernel absent from the table falls back to the roofline with a
+once-per-kernel warning. The format is specified by
+[`docs/gpu_calibration.schema.json`](docs/gpu_calibration.schema.json):
+
+```json
+{ "version": 1,
+  "kernels": {
+    "_Z6vecAddPKfS0_Pfi": [ { "threads": 65536,  "seconds": 1.2e-5 },
+                            { "threads": 1048576, "seconds": 1.4e-4 } ] } }
+```
+
+Find a kernel's mangled name in the rewritten `sst.pp.<file>.cu` (the
+`sst_hg_cuda_launch("<name>", ...)` call) or via `nm` on the object.
+
+To **produce** that table from a real run, `-include` the installed header
+[`hgcc_include/libraries/sst_hg_cuda_calibrate.h`](hgcc_include/libraries/sst_hg_cuda_calibrate.h)
+(it lands at `<prefix>/include/hgcc/libraries/`) when you compile your unmodified
+`.cu` with your **own `nvcc`** on the target GPU, and wrap each launch in an
+`SST_HG_CALIBRATE(name, threads)` scope:
+
+```cuda
+// nvcc -include <prefix>/include/hgcc/libraries/sst_hg_cuda_calibrate.h app.cu -o app
+{ SST_HG_CALIBRATE("_Z6vecAddPKfS0_Pfi", (uint64_t)grid * block);
+  vecAdd<<<grid, block>>>(da, db, dc, n); }     // timed by the scope
+...
+./app          // writes gpu_kernel_times.json  ($SST_HG_CALIBRATE_OUT to redirect)
+```
+
+Each scope times its launch with `cudaEvent`s; an `atexit` hook writes the JSON
+in the schema above, averaging repeated launches at one thread count. The header
+is dependency-free and host-portable — the JSON accumulator builds and runs
+without a GPU (only the timing path needs `nvcc`/`__CUDACC__`), so it is
+unit-testable off-GPU. Hand the resulting file straight to `gpu_kernel_times`.
+
+> The JSON accumulator is unit-tested off-GPU and the header is compile-verified
+> under real `nvcc`, but the `cudaEvent` timing itself only runs on a real
+> device — it isn't covered by the repo's host-only tests. Sanity-check the
+> measured times on your first calibration run.
 
 ---
 
@@ -92,7 +156,7 @@ mkdir build && cd build
   --prefix=$HOME/sst-hgcc/install \
   --with-sst-core=$HOME/sst-core/install \
   --with-sst-elements=$HOME/sst-elements/install \
-  --with-clang=$HOME/llvm-project-18.1.8.src/install
+  --with-clang=$HOME/llvm-project-22.src/install
 
 make -j$(nproc) && make install
 export PATH=$HOME/sst-hgcc/install/bin:$PATH

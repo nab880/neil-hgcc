@@ -1,6 +1,7 @@
-// P2: #pragma sst delete on a launch with a side-effecting argument -- the launch
-// call is removed but the side-effecting arg expression must still be evaluated
-// (captured as a temporary and then discarded) so callers observe the side effect.
+// P2: #pragma sst delete on a <<<>>> launch removes the whole statement. Unlike
+// the automatic no-cost lowering path (see launch-sideeffect.cu), an explicit
+// user delete is wholesale: replace(stmt, "") drops the launch AND its argument
+// expressions, so any side effect in the args is intentionally discarded.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %hgxx -c %s -o %t.d/out.o > %t.d/log 2>&1
@@ -24,9 +25,9 @@ int main() {
   return 0;
 }
 
-// The launch is deleted so no sst_hg_cuda_launch call for this kernel appears:
+// The launch is deleted: no lowering call for this kernel appears...
 // CHECK-NOT: sst_hg_cuda_launch("_Z1kiPi"
-
-// But next_id() is side-effecting -- it must be evaluated and discarded so the
-// counter increment is not silently lost. The rewriter captures it as a temporary:
-// CHECK: (void)(next_id()
+// ...and the deleted statement's args go with it: none of the capture-temp or
+// void-cast forms the lowering paths would have emitted for next_id() appear.
+// CHECK-NOT: __sst_arg{{[0-9]+}}_{{[0-9]+}} = (next_id()
+// CHECK-NOT: (void)(next_id()

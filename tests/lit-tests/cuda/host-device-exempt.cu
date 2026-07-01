@@ -28,10 +28,11 @@ int main() {
   return 0;
 }
 
-// __global__ body is stripped to {}:
-// CHECK: void scale(
-// CHECK: int n) {}
+// The qualifier macros pretty-print as their expanded __attribute__ spelling.
 
 // __host__ __device__ body is left intact (ternary expression survives):
-// CHECK: __host__ __device__ float clamp01(float x)
+// CHECK: __attribute__((host)) __attribute__((device)) float clamp01(float x) {
 // CHECK: return x < 0.0f
+
+// __global__ body is stripped to {}:
+// CHECK: __attribute__((global)) void scale(float *data, int n) {}

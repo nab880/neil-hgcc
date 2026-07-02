@@ -87,6 +87,20 @@ CLEANFILES += $(EXAMPLES_OBJS) $(EXAMPLES_LIBS) $(MEMOIZE_DEMO_OBJ) \
 	examples/pragmas/blocking/demo_full/out.log
 
 EXTRA_DIST += examples/platform_file_hg_test.py \
+	examples/scale_topo.py \
+	examples/user-collectives/mpi/my_allreduce.c \
+	examples/user-collectives/mpi/check_allreduce.c \
+	examples/user-collectives/mpi/build.sh \
+	examples/user-collectives/mpi/run.py \
+	examples/user-collectives/mpi/README.md \
+	examples/user-collectives/sumi/AUTHORING.md \
+	examples/user-collectives/sumi/my_ring_allreduce.h \
+	examples/user-collectives/sumi/my_ring_allreduce.cc \
+	examples/user-collectives/sumi/build_collective_plugin.sh \
+	examples/user-collectives/sumi/README.md \
+	examples/user-collectives/correctness_matrix.sh \
+	examples/user-collectives/sweep.py \
+	examples/user-collectives/plot_sweep.py \
 	examples/mercury_hello/hello.cc examples/mercury_hello/hello.py examples/mercury_hello/run.sh \
 	examples/mercury_hello_pragma/hello_pragma.cc examples/mercury_hello_pragma/hello_pragma.py \
 	examples/mercury_hello_pragma/run.sh \

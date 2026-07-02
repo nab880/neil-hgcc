@@ -445,8 +445,10 @@ def run(typ, extraLibs=""):
     if mpi_inc not in args.I:
       args.I.append(mpi_inc)
 
-  # AC_PROG_CXX likes to stick CXXFLAGS into CXX
+  # AC_PROG_CXX/AC_PROG_CC like to stick C(XX)FLAGS into CXX/CC (e.g. a
+  # detected `gcc -std=gnu23`); keep just the compiler executable.
   ctx.cxx = ctx.cxx.split(" ")[0]
+  ctx.cc = ctx.cc.split(" ")[0]
 
   #it is possible to override the host compilers use to do preprocessing/compilation
   if args.host_cxx:

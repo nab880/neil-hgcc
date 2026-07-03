@@ -18,12 +18,48 @@ inline std::map<std::string, std::map<uint64_t, std::vector<double>>>& table() {
   return t;
 }
 
+/* Guards table() so concurrent host threads can calibrate without corrupting
+ * the map. Cheap at this scale and only taken on add/dump. */
+inline std::mutex& table_mutex() {
+  static std::mutex m;
+  return m;
+}
+
+/* Emit `s` as a JSON string body (no surrounding quotes), escaping the
+ * characters JSON forbids so an odd kernel name can't produce an invalid table
+ * that the loader rejects far from the cause. */
+inline std::string json_escape(const std::string& s) {
+  std::string out;
+  out.reserve(s.size() + 2);
+  for (unsigned char c : s) {
+    switch (c) {
+      case '"':  out += "\\\""; break;
+      case '\\': out += "\\\\"; break;
+      case '\b': out += "\\b";  break;
+      case '\f': out += "\\f";  break;
+      case '\n': out += "\\n";  break;
+      case '\r': out += "\\r";  break;
+      case '\t': out += "\\t";  break;
+      default:
+        if (c < 0x20) {
+          char buf[7];
+          std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+          out += buf;
+        } else {
+          out += static_cast<char>(c);
+        }
+    }
+  }
+  return out;
+}
+
 inline void install_atexit();  // defined below; registers the dump hook
 
 /* Drop non-positive samples; recording arms the atexit dump. */
 inline void add(const char* kernel, uint64_t threads, double seconds) {
   install_atexit();
   if (kernel == nullptr || threads == 0 || seconds <= 0.0) return;
+  std::lock_guard<std::mutex> lock(table_mutex());
   table()[kernel][threads].push_back(seconds);
 }
 
@@ -36,6 +72,9 @@ inline void dump() {
     std::fprintf(stderr, "sst_hg_calibrate: cannot open %s for writing\n", path);
     return;
   }
+  // Hold the lock for the whole write so a concurrent add() can't reallocate a
+  // vector mid-iteration.
+  std::lock_guard<std::mutex> lock(table_mutex());
   std::fprintf(f, "{\n  \"version\": 1,\n  \"kernels\": {");
   bool firstKernel = true;
   for (const auto& kv : table()) {
@@ -46,7 +85,7 @@ inline void dump() {
     }
     if (!any) continue;
     std::fprintf(f, "%s\n    \"%s\": [", firstKernel ? "" : ",",
-                 kv.first.c_str());
+                 json_escape(kv.first).c_str());
     firstKernel = false;
     bool firstSample = true;
     for (const auto& ts : kv.second) {
@@ -70,11 +109,15 @@ inline void dump() {
   }
 }
 
-/* Idempotent atexit registration; construct table() before registering dump. */
+/* Idempotent atexit registration. Construct table() AND table_mutex() before
+ * registering dump so both outlive it: atexit handlers and function-local static
+ * dtors share one LIFO, so anything dump() touches must be constructed first or
+ * it is destroyed before the exit-time dump runs (mutex lock on a dead mutex). */
 inline void install_atexit() {
   static std::once_flag flag;
   std::call_once(flag, [] {
     (void)table();
+    (void)table_mutex();
     std::atexit(dump);
   });
 }

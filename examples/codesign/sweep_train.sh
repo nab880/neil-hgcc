@@ -88,11 +88,18 @@ for Nt in $SPLITS; do
       t=$(printf '%s\n' "$log" | ms)
       [ -n "$t" ] || { echo "  WARN: no time Nt=$Nt net=$net TP=$TP PP=$PP $alg" >&2; continue; }
       tput=$(awk -v dp="$DP" -v t="$t" 'BEGIN{printf "%.4f", dp/(t/1000)}')
+      # Build every cap row for this combo, then append in one write. row_done
+      # keys on (Nt,net,TP,PP,alg) but a combo emits one row per cap; appending
+      # them individually let a kill between caps mark the combo "done" with caps
+      # missing, permanently lost on resume. All-or-nothing closes that window.
+      block=""
       for cap in $CAPS; do
         zero=$(fit_zero "$DP" "$TP" "$PP" "$cap")
         [ "$zero" != "none" ] || continue      # infeasible at this capacity
-        echo "$Nt,$cap,$net,$TP,$PP,$DP,$zero,$alg,$t,$tput" >> "$OUT"
+        block="$block$Nt,$cap,$net,$TP,$PP,$DP,$zero,$alg,$t,$tput
+"
       done
+      [ -n "$block" ] && printf '%s' "$block" >> "$OUT"
       echo "  Nt=$Nt net=$net TP$TP PP$PP DP$DP $alg -> ${t}ms tput=$tput (x$(echo $CAPS|wc -w) caps)" >&2
     done
    done

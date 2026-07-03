@@ -82,9 +82,9 @@ lit-tests: $(top_builddir)/hgcc $(top_builddir)/hg++ $(top_builddir)/ssthg_clang
 installcheck-local:
 	@if test -n "@SST_PROG@" || command -v sst >/dev/null 2>&1; then \
 	    SST_BIN=$${SST_BIN:-@SST_PROG@} \
-	    bash $(TEST_TLS_RUNNER); \
+	    bash $(TEST_TLS_RUNNER) || exit 1; \
 	    for r in $(CUDA_TEST_RUNNERS); do \
-	        SST_BIN=$${SST_BIN:-@SST_PROG@} bash $$r; \
+	        SST_BIN=$${SST_BIN:-@SST_PROG@} bash $$r || exit 1; \
 	    done; \
 	else \
 	    echo "test_tls: sst not installed; skipping (configure with --enable-strict-tests to enforce)"; \

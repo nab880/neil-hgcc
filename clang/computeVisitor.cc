@@ -47,6 +47,8 @@ Questions? Contact sst-macro-help@sandia.gov
 #include "validateScope.h"
 #include "astVisitor.h"
 
+#include <algorithm>
+
 using namespace clang;
 using namespace clang::driver;
 using namespace clang::tooling;
@@ -364,8 +366,19 @@ ComputeVisitor::visitBodyIfStmt(IfStmt *stmt, Loop::Body &body)
   auto iter = CompilerGlobals::astNodeMetadata.predicatedBlocks.find(stmt);
   if (iter == CompilerGlobals::astNodeMetadata.predicatedBlocks.end()){
     if (derivingKernelCost_){
-      // Deriving kernel cost: count then-branch as conservative upper bound.
-      addOperations(stmt->getThen(), body);
+      // Deriving kernel cost with no hint: charge the per-dimension max of the
+      // two arms -- a genuine conservative upper bound. (Charging only the then-
+      // branch, as before, understates `if (c) cheap(); else expensive();`.)
+      Loop::Body thenBody; thenBody.depth = body.depth;
+      addOperations(stmt->getThen(), thenBody);
+      Loop::Body elseBody; elseBody.depth = body.depth;
+      if (stmt->getElse()) addOperations(stmt->getElse(), elseBody);
+      for (size_t i = 0; i < body.counts.size(); ++i)
+        body.counts[i] += std::max(thenBody.counts[i], elseBody.counts[i]);
+      // In deriving mode loops bail (sawLoop_), so arms carry no subLoops; splice
+      // any that do appear (conservative sum) to stay correct if that changes.
+      body.subLoops.splice(body.subLoops.end(), thenBody.subLoops);
+      body.subLoops.splice(body.subLoops.end(), elseBody.subLoops);
     } else {
       warn(stmt, "if-stmt inside compute block has no prediction hint - assuming always false");
       if (stmt->getElse()){

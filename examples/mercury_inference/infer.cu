@@ -56,8 +56,14 @@ static inline int grid_for(long threads, int block) { return (int)((threads + bl
 // the simulator's 32-bit BYTE counter (the full KV cache exceeds 2^31 at large L/S/B; the
 // chunk is 1GB = <2^31 bytes). Posts non-blocking ops into reqs[]; returns how many. Both
 // peers compute count identically, so the chunk decompositions match.
-static int post_kv(int isend, long count, int peer, int tag, MPI_Request* reqs) {
+static int post_kv(int isend, long count, int peer, int tag, MPI_Request* reqs, int cap) {
   const long CH = 256L * 1024 * 1024;
+  long need = (count + CH - 1) / CH;               // one request per chunk
+  if (need > cap) {
+    std::fprintf(stderr, "post_kv: %ld chunks exceed request capacity %d "
+                 "(raise the reqs[] array or DECODE the config down)\n", need, cap);
+    MPI_Abort(MPI_COMM_WORLD, 1);
+  }
   int n = 0;
   for (long off = 0; off < count; off += CH) {
     int cc = (int)(count - off < CH ? count - off : CH);
@@ -116,6 +122,15 @@ int main(int argc, char** argv) {
   int P = getenv("PREFILL_RANKS") ? atoi(getenv("PREFILL_RANKS")) : (size > 1 ? 1 : 0);
   if (P > size - 1 && size > 1) P = size - 1;
   if (P < 0) P = 0;
+  // KV routing (prefill r -> decode P + r%Dn) is a bijection only when P <= Dn;
+  // past that two prefill ranks target one decode rank that posts a single recv,
+  // so the second sender's Waitall hangs. Clamp P to the decode pool size.
+  if (size > 1 && P > size - P) {
+    P = size / 2;
+    if (rank == 0)
+      std::fprintf(stderr, "mercury_inference: PREFILL_RANKS clamped to %d "
+                   "(must be <= decode pool size)\n", P);
+  }
   const int Dn = size - P;                 // decode pool size = decode TP degree
   const bool is_prefill = rank < P;
 
@@ -148,7 +163,7 @@ int main(int argc, char** argv) {
       cudaStreamSynchronize(s);
       int dst = P + (rank % (Dn > 0 ? Dn : 1));      // paired decode rank
       MPI_Request sreqs[1024];
-      int ns = post_kv(1, kv_floats, dst, r, sreqs);
+      int ns = post_kv(1, kv_floats, dst, r, sreqs, (int)(sizeof(sreqs)/sizeof(sreqs[0])));
       MPI_Waitall(ns, sreqs, MPI_STATUSES_IGNORE);
     } else {
       // Prefetch this request's KV while the previous request still decodes -> the
@@ -156,7 +171,7 @@ int main(int argc, char** argv) {
       int src = rank - P;
       bool recv = src < P;
       MPI_Request kvreqs[1024]; int nkv = 0;
-      if (recv) nkv = post_kv(0, kv_floats, src, r, kvreqs);
+      if (recv) nkv = post_kv(0, kv_floats, src, r, kvreqs, (int)(sizeof(kvreqs)/sizeof(kvreqs[0])));
       for (int t = 0; t < steps; ++t)
         for (int l = 0; l < nlayers; ++l)
           decode_layer(d, s, pool, Dn, B, S + t);

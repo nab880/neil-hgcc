@@ -54,8 +54,17 @@ int main(int argc, char** argv) {
   const char* tps = getenv("TP_SIZE");
   int tp_size = tps ? atoi(tps) : 1;
   if (tp_size < 1) tp_size = 1;
+  if (tp_size > size) tp_size = size;
+  // size must split evenly into TP groups; otherwise leftover ranks (e.g.
+  // size=6, TP_SIZE=4) land in a phantom pipeline stage and MPI_Recv from a
+  // peer that never sends -> deadlock.
+  if (size % tp_size != 0) {
+    if (rank == 0)
+      std::fprintf(stderr, "mercury_megatron: nranks %d not divisible by TP_SIZE %d\n",
+                   size, tp_size);
+    MPI_Abort(MPI_COMM_WORLD, 1);
+  }
   int pp_size = size / tp_size;
-  if (pp_size < 1) { pp_size = 1; tp_size = size; }
   const int tp_rank = rank % tp_size;
   const int pp_rank = rank / tp_size;
   const int M = getenv("MICROBATCH") ? atoi(getenv("MICROBATCH")) : 4;

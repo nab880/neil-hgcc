@@ -63,8 +63,14 @@ static inline int grid_l(long threads, int block) { return (int)((threads + bloc
 // Bucket a NULL-buffer transfer of `count` MPI_FLOATs into chunks that fit the simulator's
 // 32-bit BYTE counter (a K/V block exceeds 2^31 bytes past ~2M-token contexts; the chunk is
 // 1GB). Posts non-blocking ops into reqs[]; returns how many. Both ring neighbours match.
-static int post_blk(int isend, long count, int peer, int tag, MPI_Request* reqs) {
+static int post_blk(int isend, long count, int peer, int tag, MPI_Request* reqs, int cap) {
   const long CH = 256L * 1024 * 1024;
+  long need = (count + CH - 1) / CH;               // one request per chunk
+  if (need > cap) {
+    std::fprintf(stderr, "post_blk: %ld chunks exceed request capacity %d "
+                 "(raise the reqs[] array or lower SEQ)\n", need, cap);
+    MPI_Abort(MPI_COMM_WORLD, 1);
+  }
   int n = 0;
   for (long off = 0; off < count; off += CH) {
     int cc = (int)(count - off < CH ? count - off : CH);
@@ -129,8 +135,8 @@ int main(int argc, char** argv) {
       const bool last = (r == N - 1);
       const int tag = l * N + r;
       if (overlap && !last) {
-        nr = post_blk(0, kv_floats, left,  tag, rreq);
-        ns = post_blk(1, kv_floats, right, tag, sreq);
+        nr = post_blk(0, kv_floats, left,  tag, rreq, (int)(sizeof(rreq)/sizeof(rreq[0])));
+        ns = post_blk(1, kv_floats, right, tag, sreq, (int)(sizeof(sreq)/sizeof(sreq[0])));
       }
       const long scores = BQ * BQ;          // score matrix: quadratic in the block
       attn_scores <<<grid_l(scores, blk), blk, 0, s>>>(d, d, d, bq);

@@ -54,6 +54,15 @@ int main(int argc, char** argv) {
   int tp_size = tps ? atoi(tps) : 1; if (tp_size < 1) tp_size = 1;
   int pp_size = pps ? atoi(pps) : 1; if (pp_size < 1) pp_size = 1;
   if (tp_size * pp_size > size) { tp_size = 1; pp_size = 1; }
+  // size must divide evenly into TP*PP groups; otherwise leftover ranks build
+  // communicators inconsistent with the tp_size/dp_size used for the workload
+  // split -- no deadlock, but a silently wrong configuration.
+  if (size % (tp_size * pp_size) != 0) {
+    if (rank == 0)
+      std::fprintf(stderr, "mercury_3d: nranks %d not divisible by TP_SIZE*PP_SIZE %d\n",
+                   size, tp_size * pp_size);
+    MPI_Abort(MPI_COMM_WORLD, 1);
+  }
   int dp_size = size / (tp_size * pp_size);
   if (dp_size < 1) dp_size = 1;
 

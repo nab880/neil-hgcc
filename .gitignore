@@ -19,6 +19,8 @@
 /config.sub
 /configure
 /configure~
+/config.guess~
+/config.sub~
 /_configs.sed
 /hgcc_config.h
 /install-sh
@@ -38,16 +40,30 @@
 __pycache__/
 *.pyc
 
+# Generated planning / scaling docs (kept on disk, never tracked)
+/CONCURRENCY-PLAN.md
+/CUDA-IMPL-PLAN.md
+/CUDA_PLAN.md
+/PAPER-TODO.md
+examples/SCALING.md
+
 # Build artifacts
+/build/
 clang/.deps/
 clang/.dirstamp
 clang/*.o
+examples/**/*.o
+examples/**/*.so
+# sweep/scratch result dumps (e.g. .ad_results.txt, .skew_results.txt, .sweep_opt.*)
+examples/**/.*results.txt
+examples/**/.sweep_opt.*
 
 # Tests
 tests/__pycache__/
 tests/*.o
 tests/*.so
 tests/*.dylib
+tests/*.log
 
 # Configure-generated replacement headers
 /replacements/ssthg_pthread_clear.h

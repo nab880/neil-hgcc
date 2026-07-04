@@ -142,5 +142,160 @@ class TestHgcompileAst(unittest.TestCase):
     self.assertEqual(out_l, ["m"])
 
 
+class _FakeCudaArgs(_FakeArgs):
+  def __init__(self):
+    _FakeArgs.__init__(self)
+    self.O = None
+    self.g = False
+    self.cuda_gpu_arch = "sm_80"
+
+
+class _FakeHgccVars:
+  """Stands in for the hgccvars module in _build_src2src_plan."""
+  useLibcxxForAst = True
+  astGnuxxRemap = False
+  clangLibtoolingCxxResourceStr = ""
+
+
+_CUDA_FLAGS_SM80 = ["-x", "cuda", "--cuda-host-only", "-nocudainc",
+                    "-nocudalib", "--cuda-gpu-arch=sm_80",
+                    "-D__host__=__attribute__((host))",
+                    "-D__device__=__attribute__((device))"]
+
+
+def _cuda_test_ctx():
+  ctx = _FakeCtx()
+  ctx.typ = "c++"
+  ctx.clangArgs = []
+  ctx.src2srcDebug = False
+  return ctx
+
+
+def _cuda_test_plan(src):
+  ctx = _cuda_test_ctx()
+  args = _FakeCudaArgs()
+  plan = hc._build_src2src_plan(
+      ctx, src, args, _FakeHgccVars(), "-I/res", "-I/cres", "-std=c++17")
+  plan.use_clangxx_host = True
+  plan.clang_cxx_bin = "/llvm/bin/clang++"
+  return ctx, args, plan
+
+
+class TestHgcompileCuda(unittest.TestCase):
+  # _build_src2src_plan resolves clang++ through `import hgccvars`, which only
+  # exists in a configured build tree; stand in an empty module so the
+  # getattr-with-default paths run instead of ModuleNotFoundError.
+  @classmethod
+  def setUpClass(cls):
+    import types
+    cls._saved_hgccvars = sys.modules.get("hgccvars")
+    sys.modules["hgccvars"] = types.ModuleType("hgccvars")
+
+  @classmethod
+  def tearDownClass(cls):
+    if cls._saved_hgccvars is not None:
+      sys.modules["hgccvars"] = cls._saved_hgccvars
+    else:
+      sys.modules.pop("hgccvars", None)
+
+  def test_cuda_lang_flags(self):
+    self.assertEqual(hc._cuda_lang_flags(_FakeCudaArgs()), _CUDA_FLAGS_SM80)
+    # import-safe default when args has no cuda_gpu_arch (stale callers)
+    self.assertIn("--cuda-gpu-arch=sm_70", hc._cuda_lang_flags(_FakeArgs()))
+
+  def test_is_cuda_source(self):
+    self.assertTrue(hc._is_cuda_source("vecadd.cu"))
+    self.assertTrue(hc._is_cuda_source("/b/sst.pp.vecadd.cu"))
+    self.assertFalse(hc._is_cuda_source("a.cc"))
+    self.assertFalse(hc._is_cuda_source("a.cu.cc"))
+    self.assertFalse(hc._is_cuda_source(None))
+
+  def test_src2src_plan_cuda_flags(self):
+    _, _, plan = _cuda_test_plan("vec.cu")
+    self.assertEqual(plan.cuda_flags, _CUDA_FLAGS_SM80)
+    _, _, plan_cc = _cuda_test_plan("vec.cc")
+    self.assertEqual(plan_cc.cuda_flags, [])
+
+  def test_preprocess_argv_has_cuda_flags_for_cu_only(self):
+    for src, want in (("vec.cu", True), ("vec.cc", False)):
+      ctx, args = _cuda_test_ctx(), _FakeCudaArgs()
+      cmds = []
+      hc.addPreprocess(
+          ctx, src, "pp." + src, args, cmds,
+          compiler_flags=["-std=c++17"],
+          use_clang_cpp_for_e=True,
+          clang_exe_for_preprocess="/llvm/bin/clang++",
+          stdlib_flag="libc++")
+      argv = cmds[0][1]
+      self.assertIn("-E", argv)
+      if want:
+        # contiguous, right after the driver + -stdlib pair
+        self.assertEqual(argv[2:2 + len(_CUDA_FLAGS_SM80)], _CUDA_FLAGS_SM80)
+      else:
+        self.assertNotIn("-nocudainc", argv)
+        self.assertNotIn("-x", argv)
+
+  def test_preprocess_cuda_hard_errors_without_clangxx(self):
+    ctx, args = _cuda_test_ctx(), _FakeCudaArgs()
+    ctx.compiler = "g++"
+    with self.assertRaises(SystemExit):
+      hc.addPreprocess(
+          ctx, "vec.cu", "pp.vec.cu", args, [],
+          compiler_flags=["-std=c++17"],
+          use_clang_cpp_for_e=True,
+          clang_exe_for_preprocess=None,
+          stdlib_flag="libc++")
+
+  def test_preprocess_cuda_rejects_c_driver(self):
+    ctx, args = _cuda_test_ctx(), _FakeCudaArgs()
+    ctx.typ = "c"
+    ctx.compiler = "gcc"
+    with self.assertRaises(SystemExit):
+      hc.addPreprocess(ctx, "vec.cu", "pp.vec.cu", args, [],
+                       use_clang_cpp_for_e=False)
+
+  def test_host_obj_cmd_cuda_host_only_for_cu(self):
+    # The rewritten sst.pp.*.cu compiles in CUDA host-only mode (not -x c++):
+    # CUDA-mode preprocessing baked in cuda_wrappers shims that only recompile
+    # in CUDA mode. The rewriter lowers every <<< and strips device bodies.
+    ctx, args, plan = _cuda_test_plan("vec.cu")
+    cmd = hc._build_host_obj_cmd(ctx, args, plan, "sst.pp.vec.cu", "tmp.o")
+    self.assertIn("--cuda-host-only", cmd)
+    self.assertEqual(cmd[cmd.index("-x") + 1], "cuda")
+    self.assertNotIn("c++", cmd)
+    # -x cuda must precede the source file so it applies to it
+    self.assertLess(cmd.index("-x"), cmd.index("sst.pp.vec.cu"))
+    ctx, args, plan = _cuda_test_plan("vec.cc")
+    cmd = hc._build_host_obj_cmd(ctx, args, plan, "sst.pp.vec.cc", "tmp.o")
+    self.assertNotIn("-x", cmd)
+
+  def test_ssthg_clang_cmd_cuda_flags_after_separator(self):
+    ctx, _, plan = _cuda_test_plan("vec.cu")
+    cmd = hc._build_ssthg_clang_cmd(ctx, plan, "/prefix", "pp.vec.cu",
+                                    True, clangMajorVersion=22)
+    sep = cmd.index("--")
+    self.assertEqual(cmd[sep + 1:sep + 1 + len(_CUDA_FLAGS_SM80)],
+                     _CUDA_FLAGS_SM80)
+    ctx, _, plan = _cuda_test_plan("vec.cc")
+    cmd = hc._build_ssthg_clang_cmd(ctx, plan, "/prefix", "pp.vec.cc",
+                                    True, clangMajorVersion=22)
+    self.assertNotIn("-nocudainc", cmd)
+
+  def test_emit_llvm_gets_x_cxx_but_llvm_compile_does_not(self):
+    ctx, args, plan = _cuda_test_plan("vec.cu")
+    cmds = []
+    hc.addEmitLlvm(ctx, "sst.pp.vec.cu", "out.ll", args, cmds, plan=plan)
+    argv = cmds[0][1]
+    i = argv.index("-x")
+    self.assertEqual(argv[i:i + 3], ["-x", "c++", "sst.pp.vec.cu"])
+    cmds = []
+    hc.addLlvmCompile(ctx, "out.ll", "tmp.o", args, cmds, plan=plan)
+    self.assertNotIn("-x", cmds[0][1])
+
+  def test_filter_ast_host_flags_keeps_cuda_flags(self):
+    flags = hc._cuda_lang_flags(_FakeCudaArgs())
+    self.assertEqual(hc._filter_ast_host_flags(list(flags)), flags)
+
+
 if __name__ == "__main__":
   unittest.main()

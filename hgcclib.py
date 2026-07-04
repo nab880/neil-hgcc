@@ -208,6 +208,7 @@ class Context:
     self.sstCore = False
     self.hasClang = False
     self.src2srcDebug = False
+    self.cudaMode = False
 
   def simulateMode(self):
     return self.mode == self.SKELETONIZE
@@ -286,6 +287,7 @@ def run(typ, extraLibs=""):
   _filtered_argv = [a for a in _raw_argv if not a.startswith("-Wl,")]
 
   import argparse
+  import hgccvars as _hv
   parser = argparse.ArgumentParser(description='Process flags for the SST/macro compiler wrapper')
   parser.add_argument('-o', '--output', type=str,  
                     help="the linker/compilation target")
@@ -321,6 +323,9 @@ def run(typ, extraLibs=""):
   parser.add_argument("--mpi", type=str, help="build against a pre-installed MPI implementation (supported: mvapich2)")
   parser.add_argument("--mpi-prefix", type=str, help="install prefix of the MPI implementation selected by --mpi (default: $SST_HG_MV2_PREFIX or <prefix>/mvapich2)")
   parser.add_argument("--app-name", type=str, help="app name to register with userSkeletonMainInitFxn (default: output basename stripped of lib prefix and .so/.dylib suffix)")
+  parser.add_argument("--cuda-gpu-arch", type=str,
+                      default=getattr(_hv, "defaultCudaArch", "sm_70"),
+                      help="GPU arch for CUDA host-only parsing of .cu sources (default from configure --with-cuda-arch)")
 
   args, extraArgs = parser.parse_known_args(_filtered_argv)
 
@@ -332,7 +337,7 @@ def run(typ, extraLibs=""):
   if not ctx.is_conftest and extraArgs:
     for a in extraArgs:
       s = a.strip().strip("'")
-      if s.endswith('.cpp') or s.endswith('.cc') or s.endswith('.c') or s.endswith(".cxx") or s.endswith(".C"):
+      if s.endswith('.cpp') or s.endswith('.cc') or s.endswith('.c') or s.endswith(".cxx") or s.endswith(".C") or s.endswith('.cu'):
         if os.path.basename(s).startswith("conftest."):
           ctx.is_conftest = True
         break
@@ -349,9 +354,7 @@ def run(typ, extraLibs=""):
   ctx.sstCore = sstCore
   ctx.hasClang = bool(clangCppFlagsStr)
 
-  # MVAPICH2 (and future --mpi=<impl>) needs the Mercury pthread replacement and
-  # an -I on the MPI install's headers. Fold pthread.h into args.replacements so
-  # the existing temp-dir replacement machinery below handles it uniformly.
+  # MVAPICH2: add pthread.h replacement and MPI include path.
   ctx.mpi_impl = None
   ctx.mpi_prefix = None
   ctx.app_name = None
@@ -381,13 +384,24 @@ def run(typ, extraLibs=""):
       _existing.append("pthread.h")
       args.replacements = ",".join(_existing)
 
+  # Any .cu in the invocation enables cuda/ replacement headers.
+  ctx.cudaMode = any(
+      a.strip().strip("'").endswith('.cu') for a in (extraArgs or []))
+  if ctx.cudaMode and not ctx.is_conftest:
+    _existing = [r.strip() for r in (args.replacements or "").split(',') if r.strip()]
+    for _r in ("cuda/cuda_runtime.h", "cuda/driver_types.h",
+               "cuda/vector_types.h", "cuda/device_launch_parameters.h",
+               "cuda/hg_cuda_shims.h"):
+      if _r not in _existing:
+        _existing.append(_r)
+    args.replacements = ",".join(_existing)
+
   # Skip replacements for conftest (real system headers for configure).
   ctx.requestedReplacements = []
   if args.replacements and not ctx.is_conftest:
     ctx.requestedReplacements = [r.strip() for r in args.replacements.split(',') if r.strip()]
     
-    # Create a temporary directory with only the specified replacement headers
-    # This ensures only the requested headers are available as replacements
+    # Temp dir with only the requested replacement headers.
     import tempfile
     import shutil
     replacementsPath = os.path.join(prefix, "include", "replacements")
@@ -437,6 +451,10 @@ def run(typ, extraLibs=""):
 
     args.I.insert(0, tempReplacementsDir)
     args.I.insert(1, os.path.join(prefix, "include"))
+
+    # User code includes <cuda_runtime.h> flat; -I the cuda/ subdir directly.
+    if ctx.cudaMode:
+      args.I.insert(0, os.path.join(tempReplacementsDir, "cuda"))
 
   # Inject MPI include path after the replacement temp dir so MV2's mpi.h is
   # preferred over any older header layering, but replacement headers still win.
@@ -489,8 +507,7 @@ def run(typ, extraLibs=""):
     val = int(os.environ["SST_HG_SKELETONIZE"])
     skeletonizing = bool(val)
   if skeletonizing or (not args.skeletonize is None):
-    # Apple-LLVM-linked ssthg_clang's CommonOptionsParser rejects --skeletonize;
-    # ssthg_clang reads SST_HG_SKELETONIZE directly, so propagate via env.
+    # Apple-LLVM ssthg_clang reads SST_HG_SKELETONIZE from env, not --skeletonize.
     os.environ["SST_HG_SKELETONIZE"] = "1"
     ctx.setMode(ctx.SKELETONIZE)
 
@@ -554,6 +571,9 @@ def run(typ, extraLibs=""):
     elif sarg.endswith('.cpp') or sarg.endswith('.cc') or sarg.endswith('.c') \
                                or sarg.endswith(".cxx") or sarg.endswith(".C"):
       sourceFiles.append(sarg)
+    elif sarg.endswith('.cu'):
+      sourceFiles.append(sarg)
+      ctx.cudaMode = True
     elif sarg.endswith('.S') or sarg.endswith(".s"):
       asmFiles = True
     elif sarg.startswith("-g"):
@@ -562,6 +582,13 @@ def run(typ, extraLibs=""):
       unparsedArgs.append(sarg)
   ctx.cFlags.extend(unparsedArgs) #add anything I didn't recognize here for now
   ctx.cxxFlags.extend(unparsedArgs) #add anything I didn't recognize here for now
+
+  if any(s.endswith('.cu') for s in sourceFiles):
+    if not getattr(_hv, "haveCudaSupport", False) or not ctx.hasClang:
+      sys.exit("hgcc: error: .cu input requires CUDA host-only support, "
+               "which this install lacks (configure probe CHECK_CUDA_HOSTONLY "
+               "reported no; re-configure with --with-clang=<llvm-root> whose "
+               "clang++ can parse CUDA host-only)")
 
   # Substitute compiler path when built using Spack
 
@@ -614,10 +641,7 @@ def run(typ, extraLibs=""):
   elif typ.lower() == "c":
     ctx.compiler = ctx.cc
     ctx.ld = ctx.cxx
-    # If the Clang AST driver (ssthg_clang) was not built but a C source is being
-    # compiled in simulate mode, global-variable src-to-src rewriting will be
-    # skipped. Warn so users can see why skeletonization did not happen, but do
-    # not abort — plain C -c still works and conftest / host tools depend on it.
+    # C without ssthg_clang skips global-variable rewriting.
     if ctx.simulateMode() and not ctx.hasClang and not getattr(ctx, "is_conftest", False):
       sys.stderr.write(
           "WARNING: hgcc: compiling C source without Clang AST driver; "

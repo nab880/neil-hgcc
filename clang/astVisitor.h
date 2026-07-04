@@ -46,6 +46,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #define bin_clang_replAstVisitor_h
 
 #include "clangHeaders.h"
+#include "clang/AST/Mangle.h"
 #include "pragmas.h"
 #include "globalVarNamespace.h"
 
@@ -410,6 +411,10 @@ class SkeletonASTVisitor : public clang::RecursiveASTVisitor<SkeletonASTVisitor>
 
   bool TraverseCallExpr(clang::CallExpr* expr, DataRecursionQueue* queue = nullptr);
 
+  // Lower <<<>>> to sst_hg_cuda_launch; honors gpu_compute and delete pragmas.
+  bool TraverseCUDAKernelCallExpr(clang::CUDAKernelCallExpr* expr,
+                                  DataRecursionQueue* queue = nullptr);
+
   bool TraverseUnresolvedLookupExpr(clang::UnresolvedLookupExpr* expr,
                                     DataRecursionQueue* queue = nullptr);
 
@@ -763,6 +768,11 @@ class SkeletonASTVisitor : public clang::RecursiveASTVisitor<SkeletonASTVisitor>
   std::list<clang::Expr*> activeDerefs_;
   std::list<clang::IfStmt*> activeIfs_;
   int insideCxxMethod_;
+
+  int cudaLaunchCounter_ = 0;
+  std::unique_ptr<clang::MangleContext> cudaMangler_;
+  void rewriteCudaLaunch(clang::CUDAKernelCallExpr* expr);
+  std::string mangleKernelName(clang::FunctionDecl* kernel);
 
   std::set<std::string> ssthgFxnPrepends_;
   typedef void (SkeletonASTVisitor::*MPI_Call)(clang::CallExpr* expr);

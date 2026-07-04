@@ -47,6 +47,8 @@ Questions? Contact sst-macro-help@sandia.gov
 #include "validateScope.h"
 #include "astVisitor.h"
 
+#include <algorithm>
+
 using namespace clang;
 using namespace clang::driver;
 using namespace clang::tooling;
@@ -58,15 +60,12 @@ ComputeVisitor::visitAccessDeclRefExpr(DeclRefExpr* expr, MemoryLocation& mloc)
   Variable& var = variables[decl];
   mloc.append(var.id);
   mloc.updateGeneration(var.generation);
-  //std::cout << "access depends on variable " << (char) var.id
-  //          << " at generation " << var.generation
-  //          << " -> " << mloc.maxGen << std::endl;
 }
 
 void
 ComputeVisitor::visitAccessCompoundStmt(CompoundStmt* stmt, Loop::Body&  /*body*/, MemoryLocation&  /*mloc*/)
 {
-  errorAbort(stmt, "visiting compound statement in data flow analysis");
+  bailIfDeriving(stmt, "visiting compound statement in data flow analysis");
 }
 
 void
@@ -123,8 +122,6 @@ ComputeVisitor::visitAccessArraySubscriptExpr(
   AccessHistory& access = arrays[subLoc];
   if (updateDependence){
     mloc.updateGeneration(access.lastWriteGeneration);
-    //std::cout << "access depends on " << subLoc.c_str() << " at generation "
-    //          << access.lastWriteGeneration << "->" << mloc.maxGen << std::endl;
   }
   mloc.append(subLoc);
 }
@@ -168,6 +165,7 @@ ComputeVisitor::visitLoop(ForStmt* stmt, Loop& loop)
 void
 ComputeVisitor::visitBodyForStmt(ForStmt* stmt, Loop::Body& body)
 {
+  if (derivingKernelCost_){ sawLoop_ = true; return; } //caller falls back to 0+warn
   body.subLoops.emplace_back(body.depth+1);
   visitLoop(stmt, body.subLoops.back());
 }
@@ -175,6 +173,7 @@ ComputeVisitor::visitBodyForStmt(ForStmt* stmt, Loop::Body& body)
 void
 ComputeVisitor::visitBodyWhileStmt(WhileStmt *stmt, Loop::Body &body)
 {
+  if (derivingKernelCost_){ sawLoop_ = true; return; } //caller falls back to 0+warn
   errorAbort(stmt, "skeletonized while loop has unknown count - use pragma sst loop_count");
 }
 
@@ -205,7 +204,7 @@ ComputeVisitor::visitBodyUnaryOperator(UnaryOperator* op, Loop::Body& body)
         if (pty.isVolatileQualified() || ty.isVolatileQualified()){
           //treat this as a new memory access each time
           TypeInfo ti = CompilerGlobals::CI().getASTContext().getTypeInfo(pty);
-          body.readBytes += ti.Width / 8;
+          body.readBytes() += ti.Width / 8;
         }
       }
     }
@@ -215,11 +214,11 @@ ComputeVisitor::visitBodyUnaryOperator(UnaryOperator* op, Loop::Body& body)
   case UO_PreInc:
   case UO_PreDec:
     if (ty->isIntegerType()) {
-      body.intops += 1;
+      body.intops() += 1;
     } else if (ty->isFloatingType()) {
-      body.flops += 1;
+      body.flops() += 1;
     } else if (ty->isPointerType()){
-      body.intops += 1;
+      body.intops() += 1;
     }
     break;
   default:
@@ -246,19 +245,22 @@ ComputeVisitor::visitBodyBinaryOperator(BinaryOperator* op, Loop::Body& body)
     case BO_Div:
     case BO_Sub:
       if (op->getType()->isIntegerType()) {
-        body.intops += 1;
+        body.intops() += 1;
       } else if (op->getType()->isFloatingType()) {
-        body.flops += 1;
+        body.flops() += 1;
       } else if (op->getType()->isPointerType()){
-        body.intops += 1;
+        body.intops() += 1;
       } else if (op->getType()->isDependentType()){
         //this better be a template type
         const Type* ty = op->getLHS()->getType().getTypePtr();
         if (!isa<const TemplateTypeParmType>(ty)){
-          errorAbort(op, "binary operator has non-template dependent type");
+          bailIfDeriving(op, "binary operator has non-template dependent type");
         }
       } else {
-        errorAbort(op, "binary operator in skeletonized loop does not operate on int or float types");
+        // A type the cost model can't count (not int/float/pointer). When
+        // deriving a kernel cost, bail to the zero+warn fallback instead of
+        // aborting the whole compile as normal skeletonization would.
+        bailIfDeriving(op, "binary operator in skeletonized loop does not operate on int or float types");
       }
     default:
       break;
@@ -273,12 +275,10 @@ ComputeVisitor::visitBodyParenExpr(ParenExpr* expr, Loop::Body& body)
   addOperations(expr->getSubExpr(), body);
 }
 
-#define heisenbug fprintf(stderr, "%s:%d\n", __FILE__, __LINE__); fflush(stdout)
-
 void
 ComputeVisitor::visitBodyArraySubscriptExpr(ArraySubscriptExpr* expr, Loop::Body& body, bool isLHS)
 {
-  body.intops += 1; //pointer arithmetic
+  body.intops() += 1; //pointer arithmetic
   //well, well - we might have a unique memory access
   addOperations(expr->getIdx(), body);
   addOperations(expr->getBase(), body);
@@ -287,23 +287,13 @@ ComputeVisitor::visitBodyArraySubscriptExpr(ArraySubscriptExpr* expr, Loop::Body
   visitAccessArraySubscriptExpr(expr, body, mloc, false); //do not update dependence
   //okay, now we have an array access to check
   AccessHistory& acc = arrays[mloc];
-  /**
-  std::cout << (isLHS ? "wrote " : "read ")
-            << mloc.c_str() << " at rw=("
-            << acc.lastReadGeneration << "," << acc.lastWriteGeneration
-            << ") during gen " << currentGeneration
-            << " with gen dep " << mloc.maxGen
-            << " at " << getStart(expr).printToString(CI.getSourceManager())
-            << std::endl; */
   bool newAccess = acc.newAccess(mloc.maxGen, currentGeneration, isLHS);
   if (newAccess){
     TypeInfo ti = CompilerGlobals::CI().getASTContext().getTypeInfo(expr->getType());
-    //std::cout << "sizeof(" << expr->getType()->getTypeClassName()
-    //          << ")=" << ti.Width << std::endl;
 
     //fails data flow check OR first access
-    if (isLHS) body.writeBytes += ti.Width / 8;
-    else       body.readBytes += ti.Width / 8;
+    if (isLHS) body.writeBytes() += ti.Width / 8;
+    else       body.readBytes() += ti.Width / 8;
   }
 }
 
@@ -344,7 +334,7 @@ ComputeVisitor::visitBodyCallExpr(CallExpr* expr, Loop::Body& body)
       if (!callee->getBody()){
         std::string error = "template instance of function "
             + td->getNameAsString() + " not generated by compiler";
-        errorAbort(expr, error);
+        bailIfDeriving(expr, error);
       } else {
         //the new scope start is beginning of function
         scopeStartLine = getStart(callee);
@@ -375,9 +365,25 @@ ComputeVisitor::visitBodyIfStmt(IfStmt *stmt, Loop::Body &body)
 {
   auto iter = CompilerGlobals::astNodeMetadata.predicatedBlocks.find(stmt);
   if (iter == CompilerGlobals::astNodeMetadata.predicatedBlocks.end()){
-    warn(stmt, "if-stmt inside compute block has no prediction hint - assuming always false");
-    if (stmt->getElse()){
-      addOperations(stmt->getElse(), body);
+    if (derivingKernelCost_){
+      // Deriving kernel cost with no hint: charge the per-dimension max of the
+      // two arms -- a genuine conservative upper bound. (Charging only the then-
+      // branch, as before, understates `if (c) cheap(); else expensive();`.)
+      Loop::Body thenBody; thenBody.depth = body.depth;
+      addOperations(stmt->getThen(), thenBody);
+      Loop::Body elseBody; elseBody.depth = body.depth;
+      if (stmt->getElse()) addOperations(stmt->getElse(), elseBody);
+      for (size_t i = 0; i < body.counts.size(); ++i)
+        body.counts[i] += std::max(thenBody.counts[i], elseBody.counts[i]);
+      // In deriving mode loops bail (sawLoop_), so arms carry no subLoops; splice
+      // any that do appear (conservative sum) to stay correct if that changes.
+      body.subLoops.splice(body.subLoops.end(), thenBody.subLoops);
+      body.subLoops.splice(body.subLoops.end(), elseBody.subLoops);
+    } else {
+      warn(stmt, "if-stmt inside compute block has no prediction hint - assuming always false");
+      if (stmt->getElse()){
+        addOperations(stmt->getElse(), body);
+      }
     }
   } else {
     std::string predicate = iter->second;
@@ -408,8 +414,8 @@ ComputeVisitor::visitBodyIfStmt(IfStmt *stmt, Loop::Body &body)
 void
 ComputeVisitor::visitBodySwitchStmt(SwitchStmt *stmt, Loop::Body &body)
 {
-  body.intops += 1; //for jump table
-  body.readBytes += 8; //for jump table
+  body.intops() += 1; //for jump table
+  body.readBytes() += 8; //for jump table
   SwitchCase* sc = stmt->getSwitchCaseList();
   while (sc){
     addOperations(sc->getSubStmt(), body);
@@ -623,9 +629,9 @@ ComputeVisitor::getTripCount(ForLoopSpec* spec)
 }
 
 void
-ComputeVisitor::addLoopContribution(std::ostream& os, Loop& loop)
+ComputeVisitor::addLoopContribution(CodeBuilder& os, Loop& loop)
 {
-  os << "{ ";
+  os.openBlock();
   os << " uint64_t tripCount" << loop.body.depth << "=";
   if (loop.body.depth > 0){
     os << "tripCount" << (loop.body.depth-1) << "*";
@@ -634,29 +640,19 @@ ComputeVisitor::addLoopContribution(std::ostream& os, Loop& loop)
     }
   }
   os << "(" << loop.tripCount << "); ";
-  if (loop.body.flops > 0){
-      os << " flops += tripCount" << loop.body.depth << "*" << loop.body.flops << ";";
-  }
-  if (loop.body.readBytes > 0){
-    os << " readBytes += tripCount" << loop.body.depth << "*" << loop.body.readBytes << ";";
-  }
-  if (loop.body.writeBytes > 0){
-    os << " writeBytes += tripCount" << loop.body.depth << "*" << loop.body.writeBytes << ";";
-  }
-  if (loop.body.intops > 0){
-      os << " intops += tripCount" << loop.body.depth << "*" << loop.body.intops << ";";
+  for (size_t d = 0; d < kNumGpuCostDims; ++d){
+    int n = loop.body.counts[d];
+    if (n > 0){
+      os << " " << kGpuCostDims[d].accumVar << " += tripCount" << loop.body.depth
+         << "*" << n << ";";
+    }
   }
 
-#if 0
-    printf("trip%d=%s,flops=%d,read=%d,write=%d,ops=%d\n",
-         loop.body.depth, loop.tripCount.c_str(),
-         loop.body.flops, loop.body.readBytes, loop.body.writeBytes, loop.body.intops);
-#endif
   auto end = loop.body.subLoops.end();
   for (auto iter=loop.body.subLoops.begin(); iter != end; ++iter){
     addLoopContribution(os, *iter);
   }
-  os << "}";
+  os.closeBlock();
 }
 
 void
@@ -665,22 +661,57 @@ ComputeVisitor::setContext(Stmt* stmt){
 }
 
 void
+ComputeVisitor::emitCostAccumulation(CodeBuilder& os, Loop& loop)
+{
+  // Emit one uint64_t accumulator per cost dimension over the (possibly nested)
+  // loop tree; factored from replaceStmt so the CUDA launch rewrite can reuse it
+  // without sst_hg_compute_detailed.
+  for (const auto& dim : kGpuCostDims) os << "uint64_t " << dim.accumVar << "=0; ";
+  addLoopContribution(os, loop);
+}
+
+bool
+ComputeVisitor::deriveKernelCost(Stmt* body, std::string& accumOut)
+{
+  if (!body) return false;
+  Loop loop(0); //treat the body as a loop of size 1
+  loop.tripCount = "1";
+  derivingKernelCost_ = true; //assume guards taken; short-circuit loops
+  sawLoop_ = false;
+  setContext(body);
+  try {
+    addOperations(body, loop.body);
+  } catch (const DerivationBail&) {
+    // Hit a construct we can't cost (vector math, ungenerated template, etc.);
+    // fall back to zero+warn rather than aborting the whole compile.
+    return false;
+  }
+  // Loops need launch-site locals; fall back to zero+warn.
+  if (sawLoop_) return false;
+  CodeBuilder os(getStart(body), "ComputeVisitor::deriveKernelCost");
+  emitCostAccumulation(os, loop);
+  accumOut = os.take();
+  return true;
+}
+
+void
 ComputeVisitor::replaceStmt(Stmt* stmt, Loop& loop, const std::string& nthread)
 {
-  std::stringstream sstr;
-  sstr << "{ uint64_t flops=0; uint64_t readBytes=0; uint64_t writeBytes=0; uint64_t intops=0; ";
-  addLoopContribution(sstr, loop);
+  CodeBuilder sstr(getStart(stmt), "ComputeVisitor::replaceStmt");
+  sstr.openBlock();
+  emitCostAccumulation(sstr, loop);
   auto iter = CompilerGlobals::astNodeMetadata.computeMemoryOverrides.find(stmt);
   if (iter != CompilerGlobals::astNodeMetadata.computeMemoryOverrides.end()){
-    sstr << "readBytes=" << iter->second << ";";
+    sstr << kGpuCostDims[GPU_COST_READ_BYTES].accumVar << "=" << iter->second << ";";
   }
 
   if (nthread.empty()){
-    sstr << "sst_hg_compute_detailed(flops,intops,readBytes); }";
+    sstr << "sst_hg_compute_detailed(flops,intops,readBytes); ";
   } else {
     sstr << "sst_hg_compute_detailed_nthr(flops,intops,readBytes,"
-         << nthread << "); }";
+         << nthread << "); ";
   }
-  replace(stmt,sstr.str());
+  sstr.closeBlock();
+  replace(stmt,sstr.take());
 }
 

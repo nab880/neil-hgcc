@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://sst-simulator.org/schemas/gpu_calibration.schema.json",
+  "title": "sst-hgcc GPU kernel calibration table",
+  "description": "Measured kernel times consumed by the Mercury GPU library via the platform parameter gpu_kernel_times (CUDA_PLAN.md §4.1). For each kernel, the model exact-matches the total thread count or log-log interpolates between samples (clamped at the ends), overriding the roofline estimate. A kernel absent from the table falls back to the roofline with a once-per-kernel warning.",
+  "type": "object",
+  "required": ["version", "kernels"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "description": "Schema version. Only 1 is supported; the loader aborts otherwise.",
+      "const": 1
+    },
+    "kernels": {
+      "description": "Map from the kernel's Itanium-mangled name (the first argument of the emitted sst_hg_cuda_launch call) to its measured samples.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "required": ["threads", "seconds"],
+          "additionalProperties": false,
+          "properties": {
+            "threads": {
+              "description": "Total launched threads = gridDim.{x,y,z} * blockDim.{x,y,z}. Must be > 0.",
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "seconds": {
+              "description": "Measured wall-clock kernel time in seconds. Must be > 0.",
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "version": 1,
+      "kernels": {
+        "_Z6vecAddPKfS0_Pfi": [
+          { "threads": 65536, "seconds": 1.2e-5 },
+          { "threads": 1048576, "seconds": 1.4e-4 }
+        ]
+      }
+    }
+  ]
+}

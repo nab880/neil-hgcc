@@ -732,6 +732,7 @@ SkeletonASTVisitor::addTransitiveNullInformation(NamedDecl* decl, std::ostream& 
   while (transPrg){
     nd = transPrg->getAppliedDecl();
     if (nd) os << "->" << nd->getNameAsString();
+    transPrg = transPrg->getTransitive();
   }
 }
 

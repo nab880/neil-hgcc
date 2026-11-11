@@ -1092,7 +1092,21 @@ SkeletonASTVisitor::TraverseCallExpr(CallExpr* expr, DataRecursionQueue*  /*queu
         DeclRefExpr* dref = cast<DeclRefExpr>(fxn);
         std::string fxnName = dref->getFoundDecl()->getNameAsString();
         if (ssthgFxnPrepends_.find(fxnName) != ssthgFxnPrepends_.end()){
-          insertBefore(expr->getCallee(), "sst_hg_");
+          // Replace the whole callee, since a prefix would turn std::free
+          // into sst_hg_std::free. The qualifier can be dropped only for the
+          // C library's free; one in a user namespace or class is left alone.
+          FunctionDecl* callee = expr->getDirectCallee();
+          if (callee && callee->isExternC()){
+            // Leave out of the length any text a statement pragma inserted in
+            // front of the call, or the rewriter erases as many characters
+            // past the callee.
+            Rewriter::RewriteOptions opts;
+            opts.IncludeInsertsAtBeginOfRange = false;
+            SourceRange rng = expr->getCallee()->getSourceRange();
+            CompilerGlobals::rewriter.ReplaceText(rng.getBegin(),
+                CompilerGlobals::rewriter.getRangeSize(rng, opts),
+                "sst_hg_" + fxnName);
+          }
         }
 
         auto iter = mpiCalls_.find(fxnName);

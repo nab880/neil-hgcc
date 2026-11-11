@@ -53,9 +53,11 @@ class SSTComputePragma : public SSTPragma {
 
   static void replaceForStmt(clang::ForStmt* stmt, const std::string& nthread);
 
- private:
+ protected:
   void activate(clang::Stmt *stmt) override;
   void activate(clang::Decl* decl) override;
+
+ private:
   void defaultAct(clang::Stmt* stmt);
   void visitForStmt(clang::ForStmt* stmt);
   void visitCXXMethodDecl(clang::CXXMethodDecl* decl);
@@ -113,6 +115,10 @@ class SSTOpenMPParallelPragma : public SSTComputePragma
  public:
   SSTOpenMPParallelPragma(clang::SourceLocation loc,
                          const std::list<clang::Token>& tokens);
+
+  void activate(clang::Stmt* s) override;
+  void activate(clang::Decl* d) override;
+
  private:
   std::string numThreads(clang::SourceLocation loc,
                          const std::list<clang::Token>& tokens);

@@ -121,8 +121,11 @@ make check            # lit rewriter tests + test_tls library (optional)
 make installcheck     # SST integration test via tests/test_tls (needs sst in PATH)
 ```
 
-The examples under `examples/` are **not** built by `make`, `make install`, or
-`make check`. See [Building the examples](#building-the-examples) below.
+`make` and `make check` do not build the examples under `examples/`, but
+`make install` builds the example libraries and installs them
+(`install-exec-hook`); the compute demo needs a Mercury whose `skeleton.h`
+declares `sst_hg_compute_detailed`. See
+[Building the examples](#building-the-examples) below.
 
 ### Configure-time options
 
@@ -142,7 +145,7 @@ The examples under `examples/` are **not** built by `make`, `make install`, or
 
 | Flag | Description |
 |------|-------------|
-| `--skeletonize` | Activate skeletonization (strip compute, rewrite `main`; default for app builds) |
+| `--skeletonize=` | Activate skeletonization (strip compute, rewrite `main`). It is the default for app builds, except that plain `#pragma omp parallel` regions are modelled only when it is asked for (this flag or `SST_HG_SKELETONIZE=1`) |
 | `--memoize` | Activate memoization mode (capture variable types) |
 | `--replacements=hdr1,hdr2` | Inject replacement headers (e.g. `pthread.h,vector`) |
 | `--disable-mpi` | Do not map `#include <mpi.h>` to Mercury's virtual MPI (`mask_mpi.h`); use the `mpi.h` on the `-I` or system include path |
@@ -161,7 +164,7 @@ The examples under `examples/` are **not** built by `make`, `make install`, or
 | `SST_HG_DELETE_TEMPS=0` | Keep temporary source-to-source files |
 | `SST_HG_DELETE_TEMP_SOURCES=0` | Keep rewritten `.cc` intermediates |
 | `SST_HG_DELETE_TEMP_OBJECTS=0` | Keep temporary object files |
-| `SST_HG_SKELETONIZE` | Enable skeletonization via environment |
+| `SST_HG_SKELETONIZE=0 or 1` | Skeletonize mode. A simulated build sets it to 1 unless it is set already or another mode is chosen (`SST_HG_ENCAPSULATE`, `SST_HG_PUPPETIZE`, `SST_HG_SHADOWIZE` or `SST_HG_MEMOIZE` set to 1); 0 gives encapsulate mode. On that default path the `#pragma sst` rewrites apply, but plain `#pragma omp parallel` regions run as written; they are modelled only when skeletonize mode is asked for (`SST_HG_SKELETONIZE=1` or `--skeletonize=`) |
 | `SST_HG_MEMOIZE` | Enable memoization via environment |
 | `SST_HG_DEBUG_SRC2SRC` | Debug the source-to-source pipeline |
 | `SST_HG_CXX`, `SST_HG_CC` | Override host C++ / C compilers. `SST_HG_CC` may carry options (`clang -std=gnu17`), which go ahead of the C flags; `SST_HG_CXX` must be a program |
@@ -184,16 +187,17 @@ After `make install`, key paths under `$prefix` are:
 ## Building the examples
 
 The [`examples/`](https://github.com/sstsimulator/sst-hgcc/blob/main/examples/) directory contains documented Mercury apps and
-`#pragma sst` demos. These are **optional** and kept separate from the main
-toolchain build so that a normal install stays fast and does not require a full
-Mercury/SST stack at compile time.
+`#pragma sst` demos. These are **optional**: `make` and `make check` do not
+build them, but `make install` builds and installs the five runnable `.so`
+files (`install-exec-hook`), so the install needs a Mercury with the hgcc hooks
+(the compute demo needs a `skeleton.h` that declares `sst_hg_compute_detailed`).
 
 ### What each make target builds
 
 | Target | Builds examples? | Notes |
 |--------|------------------|-------|
 | `make` | No | Builds `hgcc`, `hg++`, `ssthg_clang`, and wrapper scripts only |
-| `make install` | No | Installs the toolchain; does not install example `.so` files |
+| `make install` | Yes | Installs the toolchain, and builds and installs the five runnable example `.so` files (`install-exec-hook`); the memoize demo is not built |
 | `make check` | No | Runs lit rewriter tests; builds `tests/libtest_tls.so` for integration testing |
 | `make examples` | **Yes** | Compiles all example sources (see below) |
 | `make install-examples` | Installs only | Copies the five runnable example `.so` files to the SST element library path |
@@ -479,7 +483,7 @@ HGCC transform modes (set via `--skeletonize`, `--memoize`, `--puppetize`,
 
 | Mode | CLI flag | Purpose |
 |------|----------|---------|
-| Skeletonize | `--skeletonize` (default) | Strip/simplify code for simulation |
+| Skeletonize | `--skeletonize=` (default; plain omp regions are modelled only on request) | Strip/simplify code for simulation |
 | Memoize | `--memoize` | Capture variable types |
 | Puppetize | `--puppetize` | Instrument for proxy execution |
 | Shadowize | `--shadowize` | Shadow execution variant |
@@ -521,7 +525,7 @@ full SST-runnable demos are listed separately.
 | `compute` | `#pragma sst compute` | Skeletonize next loop/if/body into simulated compute ops | [demo_full/](https://github.com/sstsimulator/sst-hgcc/blob/main/examples/pragmas/compute/demo_full/) |
 | `always_compute` | `#pragma sst always_compute` | Same as `compute`; also active in encapsulate mode | `#pragma sst always_compute`<br/>`for (i=0; i<N; ++i) acc += i;` |
 | `memory` | `#pragma sst memory <spec>` | Attach memory-intensity metadata (no direct rewrite) | `#pragma sst memory 1.5`<br/>`for (i=0; i<N; ++i) a[i] = b[i];` |
-| `omp parallel` | `#pragma omp parallel [num_threads(N)]` | Treated as compute with thread count | `#pragma omp parallel num_threads(4)`<br/>`{ /* work */ }` |
+| `omp parallel` | `#pragma omp parallel [num_threads(N)]` | Treated as compute with thread count when skeletonize mode is asked for (`SST_HG_SKELETONIZE=1` or `--skeletonize=`); on the default path the pragma is dropped and the region runs serially as written | `#pragma omp parallel num_threads(4)`<br/>`{ /* work */ }` |
 
 ### Simulation timing and instrumentation
 

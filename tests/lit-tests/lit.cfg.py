@@ -93,4 +93,6 @@ else:
     config.environment["SST_HG_DELETE_TEMP_SOURCES"] = "0"
     config.environment["SST_HG_DELETE_TEMP_OBJECTS"] = "0"
     config.environment["SST_HG_VERBOSE"] = "0"
-    config.environment["SST_HG_SKELETONIZE"] = "1"
+    # Do not force SST_HG_SKELETONIZE here: skeletonize is hgcc's default
+    # mode and the driver must export it to ssthg_clang itself. Setting it
+    # in the test environment hid a driver that did not.

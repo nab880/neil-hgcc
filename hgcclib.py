@@ -320,7 +320,7 @@ def run(typ, extraLibs=""):
   parser.add_argument("--replacements", type=str, help="comma-separated list of replacement headers to include (e.g., 'omp.h,pthread.h')")
   parser.add_argument("--mpi", type=str, help="build against a pre-installed MPI implementation (supported: mvapich2)")
   parser.add_argument("--mpi-prefix", type=str, help="install prefix of the MPI implementation selected by --mpi (default: $SST_HG_MV2_PREFIX or <prefix>/mvapich2)")
-  parser.add_argument("--app-name", type=str, help="app name to register with userSkeletonMainInitFxn (default: output basename stripped of lib prefix and .so/.dylib suffix)")
+  parser.add_argument("--app-name", type=str, help="app name to register with userSkeletonMainInitFxn. With --mpi: default is the output basename stripped of lib prefix and .so/.dylib suffix. Otherwise pass it when compiling the file that defines main; an explicit -Dssthg_app_name wins, as does a #define ssthg_app_name in a C++ source. A C++ main gets NAME through the preprocessor, which expands macros and collapses whitespace in it; a C main gets it as written. A double quote, a backslash or a control character is refused")
 
   args, extraArgs = parser.parse_known_args(_filtered_argv)
 
@@ -355,6 +355,9 @@ def run(typ, extraLibs=""):
   ctx.mpi_impl = None
   ctx.mpi_prefix = None
   ctx.app_name = None
+  # ssthg_clang reads SST_HG_APP_NAME, so only the --app-name branch below
+  # may set it, not the caller's environment.
+  os.environ.pop("SST_HG_APP_NAME", None)
   if args.mpi and not ctx.is_conftest:
     _impl = args.mpi.strip().lower()
     if _impl != "mvapich2":
@@ -380,6 +383,29 @@ def run(typ, extraLibs=""):
     if "pthread.h" not in _existing:
       _existing.append("pthread.h")
       args.replacements = ",".join(_existing)
+  elif args.app_name and not ctx.is_conftest:
+    # Without --mpi a C++ main is registered by skeleton.h's USER_MAIN macro,
+    # which takes the name from the ssthg_app_name define, so --app-name is
+    # honoured by defining it; pass the flag when compiling the file that
+    # defines main. An explicit -Dssthg_app_name=... wins.
+    ctx.app_name = args.app_name
+    if not any(d.split("=", 1)[0] == "ssthg_app_name" for d in args.D):
+      args.D.append("ssthg_app_name=%s" % args.app_name)
+    # USER_MAIN is C++ only, so ssthg_clang registers a C main itself, under
+    # the text of the last ssthg_app_name define (the one the preprocessor
+    # keeps); unlike USER_MAIN it does not expand macros in it.
+    _source = "--app-name"
+    for _d in args.D:
+      _key, _, _val = _d.partition("=")
+      if _key == "ssthg_app_name":
+        os.environ["SST_HG_APP_NAME"] = _val
+        if _val != args.app_name:
+          _source = "-Dssthg_app_name"
+    # The name is written into string literals as it is.
+    _name = os.environ.get("SST_HG_APP_NAME", "")
+    if any(c in '"\\' or ord(c) < 32 for c in _name):
+      sys.exit("hgcc: the app name from %s, %r, may not contain a double quote, "
+               "a backslash or a control character" % (_source, _name))
 
   # Skip replacements for conftest (real system headers for configure).
   ctx.requestedReplacements = []

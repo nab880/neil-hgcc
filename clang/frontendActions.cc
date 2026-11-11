@@ -231,10 +231,12 @@ ReplaceAction::EndSourceFileAction()
     skeleton_visitor_.registerNewKeywords(ofs);
     if (skeleton_visitor_.hasCStyleMain()){
       std::string appname = skeleton_visitor_.getAppName();
+      // mainname may start with a digit, so it only ever follows a prefix
+      std::string mainname = skeleton_visitor_.getMainName();
       ofs << "int userSkeletonMainInitFxn(const char* name, int (*foo)(int,char**));\n"
-         << "extern \"C\" int sst_hg_user_main_" << appname << "(int argc, char** argv);\n"
-         << "int " << appname << "_sst_hg_initer = userSkeletonMainInitFxn("
-           << "\"" << appname << "\",sst_hg_user_main_" << appname << ");\n\n"
+         << "extern \"C\" int sst_hg_user_main_" << mainname << "(int argc, char** argv);\n"
+         << "int sst_hg_initer_" << mainname << " = userSkeletonMainInitFxn("
+           << "\"" << appname << "\",sst_hg_user_main_" << mainname << ");\n\n"
            << "extern \"C\" const char exe_main_name[] = \"" << appname << "\";\n";
     }
 

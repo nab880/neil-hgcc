@@ -50,6 +50,7 @@ Questions? Contact sst-macro-help@sandia.gov
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
+#include <cctype>
 #include <hgcc_config.h>
 
 clang::LangOptions Printing::langOpts;
@@ -1871,6 +1872,21 @@ SkeletonASTVisitor::replaceMain(clang::FunctionDecl* mainFxn)
 
   foundCMain_ = true;
 
+  // skeleton.h's USER_MAIN macro names a C++ main after ssthg_app_name, but
+  // it is C++ only, so hgcc --app-name passes a C main's name in the
+  // environment instead. hgcc has rejected '"', '\\' and control characters,
+  // so the name goes into a string literal as it is; the renamed main's
+  // identifier maps every other character that is not a letter or digit to
+  // '_'.
+  const char* appName = isC ? getenv("SST_HG_APP_NAME") : nullptr;
+  if (appName && *appName){
+    appName_ = appName;
+    mainName_ = appName_;
+    for (char& c : mainName_){
+      if (!std::isalnum(static_cast<unsigned char>(c))) c = '_';
+    }
+  }
+
   if (mainName_.empty()){
     //we need to select a unique name for the application
     //lets just do this as the source file and the date
@@ -1880,6 +1896,7 @@ SkeletonASTVisitor::replaceMain(clang::FunctionDecl* mainFxn)
     std::stringstream sstr;
     sstr << sourceFile << "_" << t_st.tv_usec;
     mainName_ = makeCxxName(sstr.str());
+    appName_ = mainName_;
   }
 
   std::stringstream sstr;

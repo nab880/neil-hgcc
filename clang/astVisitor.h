@@ -643,6 +643,10 @@ class SkeletonASTVisitor : public clang::RecursiveASTVisitor<SkeletonASTVisitor>
   }
 
   const std::string& getAppName() const {
+    return appName_;
+  }
+
+  const std::string& getMainName() const {
     return mainName_;
   }
 
@@ -995,7 +999,9 @@ class SkeletonASTVisitor : public clang::RecursiveASTVisitor<SkeletonASTVisitor>
    */
   bool foundCMain_;
   bool refactorMain_;
+  /** main is renamed sst_hg_user_main_<mainName_> and registered as appName_ */
   std::string mainName_;
+  std::string appName_;
 
   /** Special lookups for ensuring clean rewriter.
    *  Multiple insert calls can cause issues.

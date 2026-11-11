@@ -459,6 +459,13 @@ def run(typ, extraLibs=""):
   elif "SST_HG_CC" in os.environ:
     ctx.cc = os.environ["SST_HG_CC"]
 
+  # The C compiler command can carry options: autoconf 2.73 configures CC as
+  # "clang -std=gnu23", and SST_HG_CC may hold one too. Run the program and
+  # keep its options as the first C flags, so a -std given to hgcc still wins.
+  ccWords = ctx.cc.split()
+  ctx.cc = ccWords[0]
+  ctx.cFlags[:0] = ccWords[1:]
+
   if args.no_integrated_cpp:
     sys.exit("SST compiler wrapper cannot handle --no-integrated-cpp flag")
 

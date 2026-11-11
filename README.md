@@ -158,7 +158,7 @@ The examples under `examples/` are **not** built by `make`, `make install`, or
 | `SST_HG_SKELETONIZE` | Enable skeletonization via environment |
 | `SST_HG_MEMOIZE` | Enable memoization via environment |
 | `SST_HG_DEBUG_SRC2SRC` | Debug the source-to-source pipeline |
-| `SST_HG_CXX`, `SST_HG_CC` | Override host C++ / C compilers |
+| `SST_HG_CXX`, `SST_HG_CC` | Override host C++ / C compilers. `SST_HG_CC` may carry options (`clang -std=gnu17`), which go ahead of the C flags; `SST_HG_CXX` must be a program |
 | `SST_HG_PREFIX` | Override hgcc install prefix |
 | `SST_HG_CONFIG=1` | Skip certain steps (used by automake/cmake probes) |
 

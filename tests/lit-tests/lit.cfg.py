@@ -64,6 +64,8 @@ else:
         "SST_HG_PREFIX",
         "HGCC",
         "FILECHECK",
+        "SST_HG_CC",
+        "SST_HG_CXX",
     ):
         if var in os.environ:
             config.environment[var] = os.environ[var]

@@ -1,7 +1,7 @@
 // `#pragma sst init` rewrites the initializer.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %hgcc -c %s -o %t.d/out.o || true
+// RUN: %hgcc -c %s -o %t.d/out.o
 // RUN: %FileCheck %s --input-file=%t.d/sst.pp.init.cc
 
 extern void sst_hg_lit_sink_int(int v);

@@ -1,7 +1,7 @@
 // `#pragma sst replace` swaps a call to the named function with the replacement text.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %hgcc -c %s -o %t.d/out.o || true
+// RUN: %hgcc -c %s -o %t.d/out.o
 // RUN: %FileCheck %s --input-file=%t.d/sst.pp.replace.cc
 
 extern int sst_hg_lit_orig();

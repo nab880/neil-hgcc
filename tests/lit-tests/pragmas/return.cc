@@ -1,7 +1,7 @@
 // `#pragma sst return` replaces the function body with a literal return.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %hgcc -c %s -o %t.d/out.o || true
+// RUN: %hgcc -c %s -o %t.d/out.o
 // RUN: %FileCheck %s --input-file=%t.d/sst.pp.return.cc
 
 #pragma sst return 42

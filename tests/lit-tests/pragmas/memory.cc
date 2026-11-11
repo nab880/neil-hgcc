@@ -1,7 +1,7 @@
 // #pragma sst memory <spec> -- attaches a memory-intensity override (metadata only).
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %hgcc -c %s -o %t.d/out.o || true
+// RUN: %hgcc -c %s -o %t.d/out.o
 // RUN: %FileCheck %s --input-file=%t.d/sst.pp.memory.cc
 
 void sst_hg_lit_memory() {

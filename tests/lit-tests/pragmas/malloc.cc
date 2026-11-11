@@ -1,7 +1,7 @@
 // `#pragma sst malloc` rewrites a malloc-backed init so the buffer becomes 0.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %hgcc -c %s -o %t.d/out.o || true
+// RUN: %hgcc -c %s -o %t.d/out.o
 // RUN: %FileCheck %s --input-file=%t.d/sst.pp.malloc.cc
 
 #include <stdlib.h>

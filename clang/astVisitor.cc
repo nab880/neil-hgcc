@@ -102,6 +102,7 @@ llvm::cl::opt<bool> CompilerGlobals::noRefactorMainOpt("no-refactor-main",
 
 modes::Mode CompilerGlobals::mode;
 int CompilerGlobals::modeMask;
+bool CompilerGlobals::skeletonizeByDefault = false;
 bool CompilerGlobals::refactorMain = true;
 std::vector<std::string> CompilerGlobals::realSystemIncludePaths;
 decltype(CompilerGlobals::visitor) CompilerGlobals::visitor;
@@ -240,6 +241,9 @@ CompilerGlobals::setup(clang::CompilerInstance* CI)
   if (encapsulateOpt.getNumOccurrences()){
     encapsulate = 1;
   }
+
+  const char* skelDefaultStr = getenv("SST_HG_SKELETONIZE_DEFAULT");
+  skeletonizeByDefault = skeletonize && skelDefaultStr && atoi(skelDefaultStr);
 
   int modeSum = skeletonize + memoize + shadowize + puppetize + encapsulate;
   if (modeSum > 1){

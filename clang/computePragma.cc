@@ -435,9 +435,34 @@ SSTOpenMPParallelPragma::numThreads(SourceLocation loc, const std::list<Token> &
   return expr;
 }
 
+// On hg++'s default path the region is not modelled, so its clauses are
+// not parsed either.
 SSTOpenMPParallelPragma::SSTOpenMPParallelPragma(SourceLocation loc, const std::list<Token> &tokens)
-  : SSTComputePragma(numThreads(loc,tokens))
+  : SSTComputePragma(CompilerGlobals::skeletonizeByDefault ? std::string()
+                                                          : numThreads(loc,tokens))
 { 
+}
+
+void
+SSTOpenMPParallelPragma::activate(Stmt* s)
+{
+  // A region the user did not mark is modelled only when they asked for
+  // skeletonize mode. On hg++'s default path it runs as written, as in
+  // encapsulate mode, so the work it does (a reduction, an MPI call) is kept;
+  // only the pragma itself is dropped.
+  if (CompilerGlobals::skeletonizeByDefault){
+    return;
+  }
+  SSTComputePragma::activate(s);
+}
+
+void
+SSTOpenMPParallelPragma::activate(Decl* d)
+{
+  if (CompilerGlobals::skeletonizeByDefault){
+    return;
+  }
+  SSTComputePragma::activate(d);
 }
 
 using namespace modes;

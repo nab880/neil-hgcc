@@ -184,6 +184,9 @@ struct CompilerGlobals {
 
   static modes::Mode mode;
   static int modeMask;
+  /** Skeletonize mode came from hg++'s default, not from the user
+   *  (SST_HG_SKELETONIZE_DEFAULT): plain OpenMP regions are left as written. */
+  static bool skeletonizeByDefault;
   static PragmaConfig pragmaConfig;
   static ASTContextLists astContextLists;
   static ASTNodeMetadata astNodeMetadata;

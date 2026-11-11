@@ -51,6 +51,18 @@ SST_HG_CONFIG=0: running automake, cmake - skip certain steps to fool build syst
 
 import sys
 
+# The variables ssthg_clang reads its mode from. It refuses more than one.
+_REWRITE_MODE_VARS = ("SST_HG_SKELETONIZE", "SST_HG_PUPPETIZE", "SST_HG_SHADOWIZE",
+                      "SST_HG_MEMOIZE", "SST_HG_ENCAPSULATE")
+
+def _envFlagOn(name):
+  # Reads ordinary integers as C's atoi does, which is how ssthg_clang reads
+  # these variables.
+  import os
+  import re
+  m = re.match(r"\s*([+-]?\d+)", os.environ.get(name, ""), re.ASCII)
+  return bool(m) and int(m.group(1)) != 0
+
 def createBashWrapper(compiler, exeName, ldTarget, sstCore, sstmacExe):
   import configlib
   #there is one scenario in which autoconf actually WANTS
@@ -525,6 +537,9 @@ def run(typ, extraLibs=""):
     # Apple-LLVM-linked ssthg_clang's CommonOptionsParser rejects --skeletonize;
     # ssthg_clang reads SST_HG_SKELETONIZE directly, so propagate via env.
     os.environ["SST_HG_SKELETONIZE"] = "1"
+    if args.skeletonize is not None:
+      # Asked for on the command line, so not the default path below.
+      os.environ.pop("SST_HG_SKELETONIZE_DEFAULT", None)
     ctx.setMode(ctx.SKELETONIZE)
 
   memoizing = False
@@ -543,6 +558,19 @@ def run(typ, extraLibs=""):
 
   #unless told otherwise, I am skeletonizinng
   ctx.setDefaultMode(ctx.SKELETONIZE)
+  # ssthg_clang learns its mode only from the _REWRITE_MODE_VARS (its own
+  # --skeletonize option is rejected by Apple-LLVM-linked builds), and it
+  # falls back to encapsulate mode when none is set. Select skeletonize mode
+  # on the default path too, unless the user set the variable or chose
+  # another mode; otherwise skeletonize-only pragmas such as
+  # `#pragma sst compute` are silently never applied. SST_HG_SKELETONIZE_DEFAULT
+  # tells ssthg_clang the user did not ask for the mode, so it leaves plain
+  # `#pragma omp parallel` regions as written instead of modelling them,
+  # which would drop the work they do (a reduction, an MPI call).
+  if ctx.simulateMode() and "SST_HG_SKELETONIZE" not in os.environ \
+      and not any(_envFlagOn(v) for v in _REWRITE_MODE_VARS[1:]):
+    os.environ["SST_HG_SKELETONIZE"] = "1"
+    os.environ["SST_HG_SKELETONIZE_DEFAULT"] = "1"
   from hgcompile import addModeDefines
   addModeDefines(ctx, args)
 

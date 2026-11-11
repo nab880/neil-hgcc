@@ -336,62 +336,70 @@ SSTMemoryPragma::activate(Stmt *s)
 }
 
 
-enum OpenMPProperty {
-  OMP_NTHREAD,
-  OMP_NONE
-};
-
 std::string
 SSTOpenMPParallelPragma::numThreads(SourceLocation loc, const std::list<Token> &tokens)
 {
-  static const std::map<std::string, OpenMPProperty> omp_property_map = {
-    {"num_threads", OMP_NTHREAD},
-  };
-  std::string nthread;
-  OpenMPProperty activeProp = OMP_NONE;
-  for (const Token& t : tokens){
-    switch (t.getKind()){
-    case tok::identifier:
-    {
-      auto next = t.getIdentifierInfo()->getName().str();
-      switch (activeProp) {
-      case OMP_NONE:
-      {
-        auto iter = omp_property_map.find(next);
-        if (iter != omp_property_map.end()){
-          activeProp = iter->second;
-        }
-        break;
-      }
-      case OMP_NTHREAD:
-      {
-        nthread = next;
-        activeProp = OMP_NONE;
-        break;
-      }
-      }
+  // Clause names sit outside parentheses; inside them num_threads can be a
+  // variable, as in shared(num_threads).
+  auto iter = tokens.begin();
+  int depth = 0;
+  for (; iter != tokens.end(); ++iter){
+    if (iter->is(tok::l_paren)){
+      ++depth;
+    } else if (iter->is(tok::r_paren)){
+      --depth;
+    } else if (depth == 0 && iter->is(tok::identifier)
+               && iter->getIdentifierInfo()->getName() == "num_threads"){
       break;
     }
-    case tok::string_literal:
-    case tok::numeric_constant:
-    {
-      switch(activeProp) {
-      case OMP_NTHREAD:
-      {
-        nthread = getLiteralDataAsString(t);
-        activeProp = OMP_NONE;
-        break;
-      }
-      case OMP_NONE:
-        break;
-      }
-    }
-    default:
-      break;
-  } //end switch
-  } //end for
+  }
+  if (iter == tokens.end()){
+    return "";
+  }
+  if (++iter == tokens.end() || iter->isNot(tok::l_paren)){
+    errorAbort(loc, "num_threads clause must be followed by '('");
+  }
 
-  return nthread;
+  // num_threads takes any integer expression, e.g. nt + 1 or
+  // omp_get_max_threads(), so keep every token up to the matching ')'. It
+  // becomes the hook's last argument, which converts it to int.
+  Preprocessor& pp = CompilerGlobals::CI().getPreprocessor();
+  std::string expr;
+  depth = 1;
+  int nested = 0;  // inside [] or {}, as in a lambda's capture list
+  bool listTail = false;
+  for (++iter; iter != tokens.end(); ++iter){
+    if (iter->isOneOf(tok::l_square, tok::l_brace)){
+      ++nested;
+    } else if (iter->isOneOf(tok::r_square, tok::r_brace)){
+      --nested;
+    }
+    bool top = depth == 1 && nested == 0;
+    if (iter->is(tok::l_paren)){
+      ++depth;
+    } else if (iter->is(tok::r_paren) && --depth == 0){
+      break;
+    } else if (top && !listTail && iter->is(tok::colon) && expr == "strict"){
+      // Drop the OpenMP 6.0 modifier in num_threads(strict: n).
+      expr.clear();
+      continue;
+    } else if (top && iter->is(tok::comma)){
+      // An OpenMP 6.0 list, num_threads(4, 2), gives the outermost team
+      // first; that is the region modelled here.
+      listTail = true;
+    }
+    if (listTail){
+      continue;
+    }
+    if (!expr.empty() && iter->hasLeadingSpace()){
+      expr += " ";
+    }
+    expr += pp.getSpelling(*iter);
+  }
+  if (iter == tokens.end() || expr.empty()){
+    errorAbort(loc, "num_threads clause needs an expression and a closing ')'");
+  }
+  return expr;
 }
 
 SSTOpenMPParallelPragma::SSTOpenMPParallelPragma(SourceLocation loc, const std::list<Token> &tokens)

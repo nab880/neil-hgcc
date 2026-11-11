@@ -41,7 +41,8 @@ lit -v sst-hgcc/tests/lit-tests
 ```
 core/      tests for core src2src transforms (main refactor, globals, TLS,
            replacement-header baseline)
-pragmas/   one test per supported #pragma sst directive
+pragmas/   one test per supported #pragma sst directive, plus
+           #pragma omp parallel
 ```
 Each test creates a scratch dir at `%t.d` (e.g.
 `sst-hgcc/tests/lit-tests/Output/pragmas/delete.cc.tmp.d/`). Inspect the

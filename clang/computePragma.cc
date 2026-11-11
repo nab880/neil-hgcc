@@ -246,9 +246,36 @@ SSTComputePragma::visitAndReplaceStmt(Stmt* stmt)
   vis.replaceStmt(stmt,loop,nthread_);
 }
 
+// Whether s uses a type that depends on a template parameter, as a loop in a
+// template's own body can. The compute visitor needs concrete types to count
+// the work, so such a statement is left as written; it runs natively in each
+// instantiation.
+static bool
+usesDependentTypes(Stmt* s)
+{
+  struct Finder : public RecursiveASTVisitor<Finder> {
+    bool found = false;
+    bool VisitExpr(Expr* e){
+      found = e->isTypeDependent();
+      return !found;
+    }
+    bool VisitVarDecl(VarDecl* d){
+      found = d->getType()->isDependentType();
+      return !found;
+    }
+  } finder;
+  finder.TraverseStmt(s);
+  return finder.found;
+}
+
 void
 SSTComputePragma::activate(Stmt *stmt)
 {
+  if (usesDependentTypes(stmt)){
+    warn(stmt, "#pragma sst compute: the statement uses a template-dependent "
+               "type, so it is not modelled and runs as written");
+    return;
+  }
 #define scase(type,s) \
   case(clang::Stmt::type##Class): \
     visit##type(clang::cast<type>(s)); break
@@ -266,6 +293,12 @@ SSTComputePragma::activate(Stmt *stmt)
 void
 SSTComputePragma::activate(Decl* d)
 {
+  auto* fd = dyn_cast<FunctionDecl>(d);
+  if (fd && fd->hasBody() && usesDependentTypes(fd->getBody())){
+    warn(d, "#pragma sst compute: the function uses a template-dependent "
+            "type, so it is not modelled and runs as written");
+    return;
+  }
 #define dcase(type,d) \
   case(clang::Decl::type): \
     visit##type##Decl(clang::cast<type##Decl>(d)); break

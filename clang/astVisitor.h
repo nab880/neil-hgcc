@@ -394,8 +394,6 @@ class SkeletonASTVisitor : public clang::RecursiveASTVisitor<SkeletonASTVisitor>
   friend struct ReplaceGlobalsPrinterHelper;
   std::string printWithGlobalsReplaced(clang::Stmt* stmt);
 
-  void registerNewKeywords(std::ostream& os);
-
   GlobalVarNamespace* getActiveNamespace() const {
     return currentNs_;
   }

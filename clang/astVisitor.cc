@@ -364,21 +364,6 @@ SkeletonASTVisitor::initReservedNames()
 }
 
 void
-SkeletonASTVisitor::registerNewKeywords(std::ostream& os)
-{
-  if (CompilerGlobals::toolInfoRegistration.extraInputFileParams.empty()){
-    return;
-  }
-
-  os << "\n#include <sprockit/keyword_registration.h>"
-     << "\nRegisterKeywords(";
-  for (auto& str : CompilerGlobals::toolInfoRegistration.extraInputFileParams){
-    os << "\n{\"" << str << "\", \"new keyword\" },";
-  }
-  os << "\n);";
-}
-
-void
 SkeletonASTVisitor::initHeaders()
 {
   const char* headerListFile = getenv("SST_HG_HEADERS");

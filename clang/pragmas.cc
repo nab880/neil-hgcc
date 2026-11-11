@@ -582,12 +582,13 @@ SSTBranchPredictPragma::activate(Stmt *s)
 void
 SSTOverheadPragma::activate(Stmt *s)
 {
+  // Emit the hook Mercury defines (skeleton.h). The text is inserted into
+  // the preprocessed source, so a header alias could not rename it.
   std::stringstream sstr;
-  sstr << "ssthg_advance_time(\""
+  sstr << "sst_hg_advance_time(\""
        << paramName_
        << "\");";
   CompilerGlobals::rewriter.InsertText(getStart(s), sstr.str(), false);
-  CompilerGlobals::toolInfoRegistration.extraInputFileParams.insert(paramName_);
 }
 
 void

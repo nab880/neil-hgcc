@@ -45,7 +45,7 @@ fi
 # Step 3: Link manually with -force_load to pull all archive members and
 #         the strong wrappers that ensure MPI_* resolves inside the bundle.
 echo "Building libtest_mv2_sendrecv ..."
-hgcc --replacements pthread.h -std=gnu11 -c test_mv2_sendrecv.c -I "$MV2_INC"
+hgcc --disable-mpi --replacements pthread.h -std=gnu11 -c test_mv2_sendrecv.c -I "$MV2_INC"
 
 # hgcc embeds app registration under a path-mangled name inside the .o.
 # Generate a tiny C++ shim that re-registers the same function under the

@@ -42,9 +42,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 Questions? Contact sst-macro-help@sandia.gov
 */
 
-#include <sstmac/common/hgcc_config.h>
-
-
-#include <sumi-mpi/mpi_wrapper.h>
-#include <sstmac/compute.h>
-#include <sstmac/skeleton.h>
+/* hg++ resolves `#include <mpi.h>` to this header by default, so an
+ * unmodified MPI program compiles against Mercury's virtual MPI (the
+ * sst-elements mask-mpi library) without editing its sources. mask_mpi.h
+ * declares the MPI types and constants and defines each MPI_* function as a
+ * macro over the corresponding mask_mpi_* entry point. Pass --disable-mpi to
+ * hg++ to reach the system header instead. */
+#pragma once
+#include <mask_mpi.h>

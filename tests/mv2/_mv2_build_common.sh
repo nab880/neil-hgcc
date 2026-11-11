@@ -52,7 +52,7 @@ if ! ls "$OFI_EXT_LIB"/libpmi.* 1>/dev/null 2>&1; then
 fi
 
 echo "Building lib${TEST_NAME} ..."
-hgcc --replacements pthread.h -std=gnu11 -c "${TEST_NAME}.c" -I "$MV2_INC"
+hgcc --disable-mpi --replacements pthread.h -std=gnu11 -c "${TEST_NAME}.c" -I "$MV2_INC"
 
 # hgcc embeds app registration under a path-mangled name inside the .o.
 # Generate a tiny C++ shim that re-registers the same function under the

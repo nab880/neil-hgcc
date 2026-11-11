@@ -61,7 +61,11 @@ way it would under `mpirun`. A few things change:
 - **Globals and TLS are privatized.** All ranks residing in an sst-core simulation process share one address space, so
   the rewriter rewrites globals and thread-locals to per-rank storage. The
   `tests/test_tls.cc` integration test demonstrates this — every rank prints
-  `my_global: 1` because each `++my_global` hits a private copy.
+  `my_global: 1` because each `++my_global` hits a private copy. Static
+  locals of free functions are privatized too; those of member functions,
+  conversion operators included, are not. In a class template the members
+  are rewritten once, in the template, so a `free` through a pointer of
+  dependent type there is not sent to `sst_hg_free`.
 - **Time advances via platform params.** Wall-clock latency comes from the
   Merlin/Mercury platform definition (link latency/bandwidth, `post_rdma_delay`,
   `max_eager_msg_size`, etc.), not from the host CPU.

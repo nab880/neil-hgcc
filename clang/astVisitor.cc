@@ -2095,6 +2095,11 @@ SkeletonASTVisitor::TraverseFunctionTemplateDecl(FunctionTemplateDecl *D)
 bool
 SkeletonASTVisitor::TraverseCXXDestructorDecl(CXXDestructorDecl* D)
 {
+  // As for constructors and methods: the template's own body is rewritten,
+  // and rewriting the same source again for every instantiation corrupts it.
+  if (D->isTemplateInstantiation())
+    return true;
+
   PushGuard<FunctionDecl*> pg(CompilerGlobals::astContextLists.enclosingFunctionDecls, D);
   Parent::TraverseCXXDestructorDecl(D);
   return true;

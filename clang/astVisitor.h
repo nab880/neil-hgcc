@@ -616,6 +616,11 @@ class SkeletonASTVisitor : public clang::RecursiveASTVisitor<SkeletonASTVisitor>
 
   bool TraverseCXXDestructorDecl(clang::CXXDestructorDecl* D);
 
+  /** A conversion operator is a method; traverse it as one. */
+  bool TraverseCXXConversionDecl(clang::CXXConversionDecl* D){
+    return TraverseCXXMethodDecl(D);
+  }
+
   clang::SourceLocation getVariableNameLocationEnd(clang::VarDecl* D);
 
   SSTPragmaList& getPragmas(){

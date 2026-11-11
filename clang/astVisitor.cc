@@ -877,12 +877,23 @@ SkeletonASTVisitor::VisitDeclRefExpr(DeclRefExpr* expr)
   return true;
 }
 
+// Whether argument i of the call is a pointer written at the call site. The
+// MPI visitors below null only such buffers: a call too short to hold one,
+// with a non-pointer where one goes, or with one filled in from a default
+// argument (which has no source text to replace) is left alone.
+static bool isWrittenPointerArg(CallExpr* expr, unsigned i)
+{
+  if (i >= expr->getNumArgs()) return false;
+  Expr* arg = expr->getArg(i);
+  return !isa<CXXDefaultArgExpr>(arg) && arg->getType()->isPointerType();
+}
+
 void
 SkeletonASTVisitor::visitCollective(CallExpr *expr)
 {
   if (CompilerGlobals::modeActive(modes::SKELETONIZE | modes::SHADOWIZE)){
       //first buffer argument to nullptr
-      if (expr->getArg(0)->getType()->isPointerType()){
+      if (isWrittenPointerArg(expr, 0) && isWrittenPointerArg(expr, 3)){
         //make sure this isn't a shortcut function without buffers
         replace(expr->getArg(0), "nullptr");
         replace(expr->getArg(3), "nullptr");
@@ -899,7 +910,7 @@ SkeletonASTVisitor::visitReduce(CallExpr *expr)
 {
   if (CompilerGlobals::modeActive(modes::SKELETONIZE | modes::SHADOWIZE)){
     //first buffer argument to nullptr
-    if (expr->getArg(0)->getType()->isPointerType()){
+    if (isWrittenPointerArg(expr, 0) && isWrittenPointerArg(expr, 1)){
       //make sure this isn't a shortcut function without buffers
       replace(expr->getArg(0), "nullptr");
       replace(expr->getArg(1), "nullptr");
@@ -916,7 +927,7 @@ SkeletonASTVisitor::visitPt2Pt(CallExpr *expr)
 {
   if (CompilerGlobals::modeActive(SKELETONIZE | SHADOWIZE)){
     //first buffer argument to nullptr
-    if (expr->getArg(0)->getType()->isPointerType()){
+    if (isWrittenPointerArg(expr, 0)){
       //make sure this isn't a shortcut function without buffers
       replace(expr->getArg(0), "nullptr");
       //rewriter_.ReplaceText(expr->getArg(0)->getSourceRange(), "nullptr");
@@ -1109,8 +1120,12 @@ SkeletonASTVisitor::TraverseCallExpr(CallExpr* expr, DataRecursionQueue*  /*queu
           }
         }
 
+        // Match free functions by their sst_hg_ names only. The bare names
+        // are for calls on mpi_api (TraverseCXXMemberCallExpr); a free
+        // function by one of them, such as std::reduce, is not an MPI call.
         auto iter = mpiCalls_.find(fxnName);
-        if (iter != mpiCalls_.end()){
+        if (iter != mpiCalls_.end()
+            && llvm::StringRef(fxnName).starts_with("sst_hg_")){
           MPI_Call call = iter->second;
           (this->*call)(expr);
         }

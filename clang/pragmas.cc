@@ -177,8 +177,16 @@ static void tokenToString(const Token& tok, std::ostream& os)
     break;
   }
   default:
-    std::cerr << "bad token: " << tok.getName() << std::endl;
-    errorAbort(tok.getLocation(), "invalid token in pragma");
+    // Any other operator, bracket or keyword, as in `instead {y = 0;}` or
+    // `return n + 1`, is written as it is spelled.
+    if (const char* p = tok::getPunctuatorSpelling(tok.getKind())){
+      os << p;
+    } else if (const char* k = tok::getKeywordSpelling(tok.getKind())){
+      os << k;
+    } else {
+      std::cerr << "bad token: " << tok.getName() << std::endl;
+      errorAbort(tok.getLocation(), "invalid token in pragma");
+    }
     break;
   }
 }
@@ -1075,6 +1083,10 @@ SSTPragma::tokenStreamToString(std::list<Token>::const_iterator beg,
                                std::ostream& os)
 {
   for (auto iter=beg; iter != end; ++iter){
+    // Keep the source's spacing, so `long int` stays two words.
+    if (iter != beg && iter->hasLeadingSpace()){
+      os << ' ';
+    }
     tokenToString(*iter, os);
   }
 }

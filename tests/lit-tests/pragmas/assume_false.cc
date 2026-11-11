@@ -1,7 +1,7 @@
 // Smoke: `#pragma sst assume_false` only rewrites in SKELETONIZE mode; ensure hgcc accepts it.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %hgcc -c %s -o %t.d/out.o || true
+// RUN: %hgcc -c %s -o %t.d/out.o
 // RUN: %FileCheck %s --input-file=%t.d/sst.pp.assume_false.cc
 
 extern int sst_hg_lit_cond();

@@ -1,7 +1,7 @@
 // `#pragma sst new` collapses a C++ `new` into `nullptr`.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %hgcc -c %s -o %t.d/out.o || true
+// RUN: %hgcc -c %s -o %t.d/out.o
 // RUN: %FileCheck %s --input-file=%t.d/sst.pp.new.cc
 
 struct sst_hg_lit_obj { int v; };

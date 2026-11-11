@@ -1,7 +1,7 @@
 // #pragma sst keep_if <cond> -- wraps next stmt in `if (cond) { ... } else if (0)`.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %hgcc -c %s -o %t.d/out.o || true
+// RUN: %hgcc -c %s -o %t.d/out.o
 // RUN: %FileCheck %s --input-file=%t.d/sst.pp.keep_if.cc
 
 extern int sst_hg_kif_cond;

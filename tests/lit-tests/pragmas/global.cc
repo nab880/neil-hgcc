@@ -1,7 +1,7 @@
 // #pragma sst global <name> -- marks <name> as a global in a dependent scope (metadata only).
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %hgcc -c %s -o %t.d/out.o || true
+// RUN: %hgcc -c %s -o %t.d/out.o
 // RUN: %FileCheck %s --input-file=%t.d/sst.pp.global.cc
 
 int sst_hg_lit_gv = 3;

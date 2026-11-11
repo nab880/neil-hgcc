@@ -142,7 +142,7 @@ The examples under `examples/` are **not** built by `make`, `make install`, or
 | `--memoize` | Activate memoization mode (capture variable types) |
 | `--replacements=hdr1,hdr2` | Inject replacement headers (e.g. `pthread.h,vector`) |
 | `--disable-mpi` | Do not map `#include <mpi.h>` to Mercury's virtual MPI (`mask_mpi.h`); use the `mpi.h` on the `-I` or system include path |
-| `--app-name=NAME` | Override app registration name (default: derived from `-o` output) |
+| `--app-name=NAME` | Register the app as NAME. With `--mpi` the default derives from `-o`. Without `--mpi`, pass it when compiling the file that defines `main`; there an explicit `-Dssthg_app_name` takes precedence, as does a `#define ssthg_app_name` in a C++ source. Without `--mpi` a C++ `main` gets NAME as `-Dssthg_app_name=NAME`, which `skeleton.h` stringizes after macro expansion: a macro in NAME (`NULL`, `main`, `stdout`) is expanded, whitespace is collapsed and a comma does not compile. A C `main`, and `--mpi`, register NAME as written. Use letters, digits, `_`, `-`, `+` and `.`; a double quote, a backslash or a control character is refused |
 | `--sst-component` | Skip all source-to-source rewriting (use when building an SST component itself) |
 | `--flags` | Print extra flags SST adds automatically |
 | `--prefix` | Print the hgcc install prefix |
@@ -331,7 +331,7 @@ Important OS parameters:
 
 | Parameter | Meaning |
 |-----------|---------|
-| `app1.name` | Application name (matches `ssthg_app_name`) |
+| `app1.name` | Application name (matches `--app-name` or `ssthg_app_name`) |
 | `app1.exe_library_name` | Base name of the `.so` Mercury loads (`lib<name>.so`) |
 | `app1.dependencies` | Mercury subsystems required (`sumi`, etc.) |
 | `app1.libraries` | Compute and MPI library bindings |

@@ -681,6 +681,18 @@ ComputeVisitor::replaceStmt(Stmt* stmt, Loop& loop, const std::string& nthread)
     sstr << "sst_hg_compute_detailed_nthr(flops,intops,readBytes,"
          << nthread << "); }";
   }
-  replace(stmt,sstr.str());
+  // The replaced statement can end before its own semicolon (an unbraced
+  // loop body, an expression statement, a do-while). Leaving that semicolon
+  // behind turns "if (c) S; else" into "{ ... }; else", which does not
+  // compile, so a following ';' is replaced too. When that ';' is a separate
+  // empty statement (after a braced loop or a function body), dropping it is
+  // harmless.
+  SourceRange rng = stmt->getSourceRange();
+  auto next = Lexer::findNextToken(rng.getEnd(), CompilerGlobals::SM(),
+                                   CompilerGlobals::CI().getLangOpts());
+  if (next && next->is(tok::semi)){
+    rng.setEnd(next->getLocation());
+  }
+  replace(rng, sstr.str());
 }
 

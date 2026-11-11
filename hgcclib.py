@@ -305,7 +305,7 @@ def run(typ, extraLibs=""):
   parser.add_argument('-c', '--compile', default=False, action="store_true")
   parser.add_argument('-E', '--preprocess', default=False, action="store_true")
   parser.add_argument('-V', '--version', default=False, action="store_true", help="Print SST and compiler version info")
-  parser.add_argument('--disable-mpi', default=False, action="store_true", help="Do not include virtual MPI environment")
+  parser.add_argument('--disable-mpi', default=False, action="store_true", help="Do not map #include <mpi.h> to Mercury's virtual MPI (mask_mpi.h); use the mpi.h on the -I or system include path")
   parser.add_argument('--flags', default=False, action="store_true", help="Print the extra flags SST automatically adds")
   parser.add_argument('--prefix', default=False, action="store_true", help="Print the SST installation prefix")
   parser.add_argument('--sst-component', default=False, action="store_true", 
@@ -526,6 +526,7 @@ def run(typ, extraLibs=""):
   #this is probably cmake being a jack-donkey during configure, overwrite it
   if args.std == "c++98": args.std = "c++1y"
 
+  hiddenMpiHeader = None
   # Conftest: plain compile/link, no SST skeleton paths.
   if ctx.simulateMode() and not ctx.is_conftest:
     include_root = cleanFlag(includeDirElements)
@@ -544,11 +545,30 @@ def run(typ, extraLibs=""):
         ctx.directIncludes.append(hgccAppHeader)
         break
 
-    # Optional mpi/ replacement includes from temp dir.
-    if not args.disable_mpi and hasattr(ctx, 'tempReplacementsDir'):
-      mpiReplacementDir = os.path.join(ctx.tempReplacementsDir, "mpi")
-      if os.path.isdir(mpiReplacementDir):
+    # `#include <mpi.h>` resolves to replacements/mpi/mpi.h, which forwards
+    # to mask_mpi.h, so an unmodified MPI program builds against Mercury's
+    # virtual MPI. --disable-mpi leaves the system header alone, and
+    # --mpi=<impl> puts the real implementation's headers on the path instead.
+    # The installed copy comes first; a driver run from its build tree before
+    # make install finds the one in the source tree.
+    if not args.disable_mpi and ctx.mpi_impl is None:
+      for mpiReplacementDir in (os.path.join(cleanFlag(includeDir), "replacements", "mpi"),
+                                os.path.join(cleanFlag(srcDir), "replacements", "mpi")):
+        if not os.path.isdir(mpiReplacementDir):
+          continue
+        # It goes first, ahead of the user's -I directories. Remember one of
+        # them that holds another mpi.h, which <mpi.h> then skips, so the
+        # warning below can say so once the sources are known.
+        virtualMpi = {os.path.realpath(os.path.join(mpiReplacementDir, "mpi.h")),
+                      os.path.realpath(os.path.join(cleanFlag(includeDirElements),
+                                                    "mask-mpi", "mask_mpi.h"))}
+        for d in args.I:
+          candidate = os.path.join(d, "mpi.h")
+          if os.path.isfile(candidate) and os.path.realpath(candidate) not in virtualMpi:
+            hiddenMpiHeader = candidate
+            break
         args.I.insert(0, mpiReplacementDir)
+        break
 
   sysargs = sys.argv[1:]
   asmFiles = False
@@ -572,6 +592,11 @@ def run(typ, extraLibs=""):
       unparsedArgs.append("-g") #gstab,g3,etc can appear but mess things up - make them regular -g
     else:
       unparsedArgs.append(sarg)
+  if hiddenMpiHeader and sourceFiles:
+    sys.stderr.write("hgcc: warning: <mpi.h> resolves to Mercury's virtual MPI "
+                     "ahead of %s; pass --mpi=<impl> or --disable-mpi to use "
+                     "that header\n" % hiddenMpiHeader)
+
   ctx.cFlags.extend(unparsedArgs) #add anything I didn't recognize here for now
   ctx.cxxFlags.extend(unparsedArgs) #add anything I didn't recognize here for now
 

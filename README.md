@@ -47,9 +47,11 @@ way it would under `mpirun`. A few things change:
 - **`main` is renamed.** `ssthg_clang` renames `main` to
   `sst_hg_user_main_<mangled>` and emits a wrapper Mercury calls once per rank
   inside a single virtual OS process. There is no `mpiexec`; ranks are virtual.
-- **MPI is virtual.** `#include <mask_mpi.h>` routes every MPI call through
-  sst-elements' `mask_mpi`, which models messages on the simulated Merlin
-  network. Real MPI is never linked or invoked.
+- **MPI is virtual.** `#include <mpi.h>` resolves to a header that forwards
+  to sst-elements' `mask_mpi.h`, so every MPI call is routed through
+  `mask_mpi`, which models messages on the simulated Merlin network. Real MPI
+  is never linked or invoked and sources need no edit; `--disable-mpi`
+  takes `mpi.h` from the include path again.
 - **Compute is modeled, not executed.** `ssthg_clang` strips loops and
   expressions by default (skeletonize mode), inserting `ssthg_*` time-advance
   hooks driven by the simulated platform (`frequency`,
@@ -139,7 +141,7 @@ The examples under `examples/` are **not** built by `make`, `make install`, or
 | `--skeletonize` | Activate skeletonization (strip compute, rewrite `main`; default for app builds) |
 | `--memoize` | Activate memoization mode (capture variable types) |
 | `--replacements=hdr1,hdr2` | Inject replacement headers (e.g. `pthread.h,vector`) |
-| `--disable-mpi` | Skip virtual MPI environment |
+| `--disable-mpi` | Do not map `#include <mpi.h>` to Mercury's virtual MPI (`mask_mpi.h`); use the `mpi.h` on the `-I` or system include path |
 | `--app-name=NAME` | Override app registration name (default: derived from `-o` output) |
 | `--sst-component` | Skip all source-to-source rewriting (use when building an SST component itself) |
 | `--flags` | Print extra flags SST adds automatically |
@@ -394,10 +396,10 @@ The minimum diff to take a working MPI program and run it under Mercury:
 1. **Tag the entry point.** Add `#define ssthg_app_name <name>` and
    `#include <skeleton.h>` above your existing code. `<name>` is the string
    you'll set as `app1.name` in the SST Python driver.
-2. **Swap the MPI header.** Replace `#include <mpi.h>` with
-   `#include <mask_mpi.h>` (the virtual MPI shipped by sst-elements). If you
-   can't touch the source, pass `--replacements=mpi.h` to `hg++` and the
-   replacement header is injected at preprocess time.
+2. **Keep the MPI header.** `#include <mpi.h>` already resolves to the
+   virtual MPI shipped by sst-elements (`mask_mpi.h`), and
+   `#include <mask_mpi.h>` works too. Pass `--disable-mpi` only when a file
+   must see the real system header.
 3. **Build as a shared library.** Use `hg++ -c app.cc` then
    `hg++ app.o -o libapp.so`. HGCC never produces a standalone executable.
 4. **Write the SST Python driver.** Reuse
@@ -567,11 +569,21 @@ The [`replacements/`](https://github.com/sstsimulator/sst-hgcc/blob/main/replace
 of libc, STL, pthread, MPI, and OpenMP headers. Inject them at compile time:
 
 ```bash
-hg++ --replacements=pthread.h,mpi.h -c app.cc
+hg++ --replacements=pthread.h,omp.h -c app.cc
 ```
 
-Common replacement headers: `pthread.h`, `vector`, `mutex`, `mpi.h`, `omp.h`,
-`malloc.h`, `unistd.h`.
+Common replacement headers: `pthread.h`, `vector`, `mutex`, `omp.h`,
+`malloc.h`, `unistd.h`. `#include <mpi.h>` needs no flag: in a simulated
+build it resolves to Mercury's virtual MPI unless `--disable-mpi` or
+`--mpi=<impl>` is given, ahead of any `-I` directory that holds a real
+`mpi.h` (`hg++` warns when one does); `#include "mpi.h"` still finds an
+`mpi.h` beside the including file first. Autoconf probes (a source named
+`conftest.*` or an output named `conftest`) bypass the simulation: they see
+only the system headers and do not link mask_mpi, so configure-time MPI
+header and function checks fail. Turn MPI on with a configure option, or
+preset the cached results (for example `ac_cv_header_mpi_h=yes`). Other
+probes, such as CMake's `try_compile` and `check_include_file`, go through
+the normal path and find the virtual `mpi.h`.
 
 The [`replacements/libraries/`](https://github.com/sstsimulator/sst-hgcc/blob/main/replacements/libraries/) subdirectories carry
 heavier shims used by Mercury-side library models:

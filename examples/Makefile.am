@@ -8,13 +8,15 @@ EXAMPLES_LIBS = \
 	examples/libmercury_hello.so \
 	examples/libmercury_hello_pragma.so \
 	examples/libcompute_demo.so \
-	examples/libblocking_demo.so
+	examples/libblocking_demo.so \
+	examples/liboverhead_demo.so
 
 EXAMPLES_OBJS = \
 	examples/mercury_hello/hello.o \
 	examples/mercury_hello_pragma/hello_pragma.o \
 	examples/pragmas/compute/demo_full/compute_app.o \
-	examples/pragmas/blocking/demo_full/blocking_app.o
+	examples/pragmas/blocking/demo_full/blocking_app.o \
+	examples/pragmas/overhead/demo_full/overhead_app.o
 
 MEMOIZE_DEMO_OBJ = examples/pragmas/memoize/demo.o
 
@@ -31,6 +33,7 @@ uninstall-examples:
 	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libmercury_hello_pragma.so
 	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libcompute_demo.so
 	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/libblocking_demo.so
+	rm -f $(DESTDIR)$(SST_ELEMENT_LIBRARY_EXT_LIBDIR)/liboverhead_demo.so
 
 install-exec-hook: install-examples
 uninstall-hook: uninstall-examples
@@ -41,7 +44,8 @@ run-examples: install-examples
 	    bash $(srcdir)/examples/mercury_hello/run.sh && \
 	    bash $(srcdir)/examples/mercury_hello_pragma/run.sh && \
 	    bash $(srcdir)/examples/pragmas/compute/demo_full/run.sh && \
-	    bash $(srcdir)/examples/pragmas/blocking/demo_full/run.sh; \
+	    bash $(srcdir)/examples/pragmas/blocking/demo_full/run.sh && \
+	    bash $(srcdir)/examples/pragmas/overhead/demo_full/run.sh; \
 	else \
 	    echo "run-examples: sst not installed; skipping"; \
 	fi
@@ -66,6 +70,11 @@ examples/pragmas/blocking/demo_full/blocking_app.o: $(srcdir)/examples/pragmas/b
 	@$(MKDIR_P) examples/pragmas/blocking/demo_full
 	$(HGPP_ENV) $(top_builddir)/hg++ -c $(srcdir)/examples/pragmas/blocking/demo_full/blocking_app.cc -o $@
 
+examples/pragmas/overhead/demo_full/overhead_app.o: $(srcdir)/examples/pragmas/overhead/demo_full/overhead_app.cc \
+                                                    $(top_builddir)/ssthg_clang $(top_builddir)/hg++
+	@$(MKDIR_P) examples/pragmas/overhead/demo_full
+	$(HGPP_ENV) $(top_builddir)/hg++ -c $(srcdir)/examples/pragmas/overhead/demo_full/overhead_app.cc -o $@
+
 examples/libmercury_hello.so: examples/mercury_hello/hello.o $(top_builddir)/hg++
 	$(HGPP_ENV) $(top_builddir)/hg++ examples/mercury_hello/hello.o -o $@
 
@@ -78,6 +87,9 @@ examples/libcompute_demo.so: examples/pragmas/compute/demo_full/compute_app.o $(
 examples/libblocking_demo.so: examples/pragmas/blocking/demo_full/blocking_app.o $(top_builddir)/hg++
 	$(HGPP_ENV) $(top_builddir)/hg++ examples/pragmas/blocking/demo_full/blocking_app.o -o $@
 
+examples/liboverhead_demo.so: examples/pragmas/overhead/demo_full/overhead_app.o $(top_builddir)/hg++
+	$(HGPP_ENV) $(top_builddir)/hg++ examples/pragmas/overhead/demo_full/overhead_app.o -o $@
+
 examples/pragmas/memoize/demo.o: $(srcdir)/examples/pragmas/memoize/demo.cc \
                                  $(top_builddir)/ssthg_clang $(top_builddir)/hg++
 	@$(MKDIR_P) examples/pragmas/memoize
@@ -87,7 +99,8 @@ CLEANFILES += $(EXAMPLES_OBJS) $(EXAMPLES_LIBS) $(MEMOIZE_DEMO_OBJ) \
 	examples/mercury_hello/out.log \
 	examples/mercury_hello_pragma/out.log \
 	examples/pragmas/compute/demo_full/out.log \
-	examples/pragmas/blocking/demo_full/out.log
+	examples/pragmas/blocking/demo_full/out.log \
+	examples/pragmas/overhead/demo_full/out.log
 
 EXTRA_DIST += examples/platform_file_hg_test.py \
 	examples/mercury_hello/hello.cc examples/mercury_hello/hello.py examples/mercury_hello/run.sh \
@@ -99,4 +112,7 @@ EXTRA_DIST += examples/platform_file_hg_test.py \
 	examples/pragmas/blocking/demo_full/blocking_app.cc \
 	examples/pragmas/blocking/demo_full/blocking_app.py \
 	examples/pragmas/blocking/demo_full/run.sh \
+	examples/pragmas/overhead/demo_full/overhead_app.cc \
+	examples/pragmas/overhead/demo_full/overhead_app.py \
+	examples/pragmas/overhead/demo_full/run.sh \
 	examples/pragmas/memoize/demo.cc

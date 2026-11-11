@@ -1,7 +1,9 @@
-// #pragma sst overhead <param> -- inserts `ssthg_advance_time("<param>");`.
+// `#pragma sst overhead <param>` inserts `sst_hg_advance_time("<param>");`
+// before the next statement. The compile must succeed: Mercury's skeleton.h
+// declares the hook and libhg defines it.
 
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %hgcc -c %s -o %t.d/out.o || true
+// RUN: %hgcc -c %s -o %t.d/out.o
 // RUN: %FileCheck %s --input-file=%t.d/sst.pp.overhead.cc
 
 void sst_hg_lit_overhead() {
@@ -12,4 +14,8 @@ void sst_hg_lit_overhead() {
 }
 
 // CHECK-LABEL: sst_hg_lit_overhead
-// CHECK: ssthg_advance_time("sst_hg_lit_ov")
+// CHECK-NOT: sst_hg_advance_time
+// CHECK: sst_hg_advance_time("sst_hg_lit_ov")
+// CHECK-NOT: sst_hg_advance_time
+// CHECK: x = 1
+// CHECK-NOT: sst_hg_advance_time

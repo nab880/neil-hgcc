@@ -172,7 +172,6 @@ struct ASTNodeMetadata {
  */
 struct ToolInfoRegistration {
   std::vector<std::pair<SSTPragma*, std::string>> globalCppFunctionsToWrite;
-  std::set<std::string> extraInputFileParams;
 };
 
 struct PragmaConfig {

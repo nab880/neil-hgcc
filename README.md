@@ -196,8 +196,8 @@ Mercury/SST stack at compile time.
 | `make install` | No | Installs the toolchain; does not install example `.so` files |
 | `make check` | No | Runs lit rewriter tests; builds `tests/libtest_tls.so` for integration testing |
 | `make examples` | **Yes** | Compiles all example sources (see below) |
-| `make install-examples` | Installs only | Copies the four runnable example `.so` files to the SST element library path |
-| `make run-examples` | **Yes** (if needed) | Runs `make examples`, then executes the four SST-runnable demos |
+| `make install-examples` | Installs only | Copies the five runnable example `.so` files to the SST element library path |
+| `make run-examples` | **Yes** (if needed) | Runs `make examples`, then executes the five SST-runnable demos; the overhead demo needs a Mercury that defines `sst_hg_advance_time` |
 
 ### What `make examples` produces
 
@@ -209,9 +209,9 @@ make examples
 
 This compiles:
 
-- **Four runnable shared libraries** — `examples/libmercury_hello.so`,
+- **Five runnable shared libraries** — `examples/libmercury_hello.so`,
   `examples/libmercury_hello_pragma.so`, `examples/libcompute_demo.so`,
-  `examples/libblocking_demo.so`
+  `examples/libblocking_demo.so`, `examples/liboverhead_demo.so`
 - **One compile-only demo** — `examples/pragmas/memoize/demo.o` (built with
   `hg++ --memoize`, shows variable-capture output)
 
@@ -221,7 +221,7 @@ To install the runnable `.so` files where SST/Mercury can find them:
 make install-examples    # installs to SST_ELEMENT_LIBRARY_EXT_LIBDIR
 ```
 
-To build, install, and run all four SST demos in one step:
+To build, install, and run all five SST demos in one step:
 
 ```bash
 make run-examples        # requires sst on PATH
@@ -528,7 +528,7 @@ full SST-runnable demos are listed separately.
 | Pragma | Syntax | Description | Example |
 |--------|--------|-------------|---------|
 | `advance_time` | `#pragma sst advance_time <unit> <amount>` | Insert time advance (`sec`, `msec`, `usec`, `nsec`) | `#pragma sst advance_time usec 10`<br/>`do_work();` |
-| `overhead` | `#pragma sst overhead <param>` | Insert `ssthg_advance_time("<param>")` | `#pragma sst overhead launch_overhead`<br/>`kernel();` |
+| `overhead` | `#pragma sst overhead <param>` | Insert `sst_hg_advance_time("<param>")`, which charges the time-valued app parameter `app1.<param>` as busy time | [demo_full/](https://github.com/sstsimulator/sst-hgcc/blob/main/examples/pragmas/overhead/demo_full/) |
 | `blocking` | `#pragma sst blocking api(<name>) [condition(<expr>)] [timeout(<expr>)]` | Insert `sst_hg_blocking_call(...)` | [demo_full/](https://github.com/sstsimulator/sst-hgcc/blob/main/examples/pragmas/blocking/demo_full/) |
 | `call` | `#pragma sst call <tokens>` | Insert verbatim function call before next stmt | `#pragma sst call ssthg_log("hi")`<br/>`work();` |
 | `stack_alloc` | `#pragma sst stack_alloc alloc(<size>[,<mdata>])` or `free(<var>)` | Stack allocation simulation hooks | `#pragma sst stack_alloc alloc(4096)`<br/>`char buf[4096];` |
@@ -705,7 +705,7 @@ sst-hgcc/
 - **Integration test:** `tests/test_tls.cc` — built and run via `make installcheck`
 - **Examples:** `make examples` compiles all example sources;
   `make install-examples` installs runnable `.so` files;
-  `make run-examples` runs SST simulations for the four runnable demos
+  `make run-examples` runs SST simulations for the five runnable demos
 
 ---
 
@@ -716,4 +716,5 @@ sst-hgcc/
 | [examples/mercury_hello_pragma/](https://github.com/sstsimulator/sst-hgcc/blob/main/examples/mercury_hello_pragma/) | SST runnable | Hello world with `advance_time` pragma |
 | [examples/pragmas/compute/demo_full/](https://github.com/sstsimulator/sst-hgcc/blob/main/examples/pragmas/compute/demo_full/) | SST runnable | MPI app with `#pragma sst compute` on a loop |
 | [examples/pragmas/blocking/demo_full/](https://github.com/sstsimulator/sst-hgcc/blob/main/examples/pragmas/blocking/demo_full/) | SST runnable | MPI app with `#pragma sst blocking` |
+| [examples/pragmas/overhead/demo_full/](https://github.com/sstsimulator/sst-hgcc/blob/main/examples/pragmas/overhead/demo_full/) | SST runnable | MPI app with `#pragma sst overhead launch_overhead`; the driver sets `app1.launch_overhead` |
 | [examples/pragmas/memoize/](https://github.com/sstsimulator/sst-hgcc/blob/main/examples/pragmas/memoize/) | Compile-only | `#pragma sst memoize` capture demo (built with `--memoize`) |

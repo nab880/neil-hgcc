@@ -228,7 +228,6 @@ ReplaceAction::EndSourceFileAction()
     ofs << "#include <mercury/operating_system/process/cppglobal.h>\n"
         << "#include <mercury/operating_system/process/memoize.h>\n\n";
     globalNs_.genSSTCode(ofs,"");
-    skeleton_visitor_.registerNewKeywords(ofs);
     if (skeleton_visitor_.hasCStyleMain()){
       std::string appname = skeleton_visitor_.getAppName();
       // mainname may start with a digit, so it only ever follows a prefix

@@ -154,6 +154,14 @@ jobs:
           popd
           ccache --show-stats
 
+      # TEMP: debug float128 detection
+      - name: Debug float128 detection
+        if: ${{ !cancelled() }}
+        run: |
+          grep -i float sst-hgcc-build/hgccvars.py || true
+          python3 sst-hgcc/config_tools/get_float_128 "${LLVM_ROOT}/bin/clang++" || true
+          "${LLVM_ROOT}/bin/clang++" -c sst-hgcc/config_tools/float128.cc -o /tmp/float128.o || true
+
       - name: Test hgcc
         run: |
           export PATH="${INSTALL_PREFIX}/bin:${LLVM_ROOT}/bin:${PATH}"
@@ -172,6 +180,7 @@ jobs:
             sst-hgcc-build/tests/lit-junit.xml
             sst-hgcc/tests/lit-tests/Output
             sst-hgcc-build/tests/out.log
+            sst-hgcc-build/config.log
           if-no-files-found: ignore
           compression-level: 9
           retention-days: 5
